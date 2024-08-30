@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verification</title>
+    <link rel="icon" href="/static/5.ico" type="image/x-icon">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Verification</h1>
+        <p>Please solve to proceed:</p>
+        <form action="{{ url_for('start_container') }}" method="POST">
+            <p>{{ question }} = <input type="number" name="captcha_answer" required></p>
+            <br><br>
+            <button type="submit">Submit</button>
+        </form>
+    </div>
+</body>
+</html>

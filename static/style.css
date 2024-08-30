@@ -1,0 +1,77 @@
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    background: url('/static/background.webp') no-repeat center center;
+    background-size: cover;
+    color: #ffffff;
+    font-family: 'Arial', sans-serif;
+}
+
+.container {
+    text-align: center;
+    color: #ffffff;
+    padding: 30px;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 15px;
+    max-width: 600px;
+    width: 100%;
+    box-sizing: border-box;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+h1, h2 {
+    margin: 0 0 20px;
+    font-family: 'Verdana', sans-serif;
+}
+
+button, .button, #add-time-link, #add-start-link {
+    padding: 12px 24px;
+    margin-top: 30px;
+    font-size: 18px;
+    font-weight: bold;
+    text-align: center;
+    text-decoration: none;
+    color: #ffffff;
+    background-color: #007bff;
+    border: 2px solid #0056b3;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s, border-color 0.3s, transform 0.2s;
+}
+
+button:hover {
+    background-color: #0056b3;
+    transform: scale(1.05);
+}
+
+.hidden {
+    display: none;
+}
+
+.copyable {
+    cursor: pointer;
+    position: relative;
+    display: inline-block;
+}
+
+.tooltip {
+    position: absolute;
+    background-color: rgba(0, 0, 0, 0.9);
+    color: #ffffff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    visibility: hidden;
+    white-space: nowrap;
+    z-index: 1000;
+    bottom: 125%; /* Adjust tooltip position */
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.copyable:hover .tooltip {
+    visibility: visible;
+}

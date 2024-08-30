@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ docker_container_name }}: {{ status }}</title>
+    <link rel="icon" href="/static/5.ico" type="image/x-icon">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>{{ docker_container_name }}: {{ status }}</h1>
+        <div id="status-info">
+            <h2 id="remaining-time-label" class="hidden">Remaining Time: <span id="remaining-time"></span></h2>
+            <h2 id="server-ip-label" class="hidden">Server-IP: <span id="server-ip" class="copyable">80.66.59.216:8211</span></h2>
+            <div id="tooltip" class="tooltip">Click to copy</div>
+        </div>
+        <br>
+        <br>
+        <a href="{{ url_for('captcha_start') }}" id="add-start-link">START</a>
+        <a href="{{ url_for('captcha') }}" id="add-time-link">Add 4 hours</a>
+    </div>
+    
+    <script>
+        let timeRemaining = {{ time_remaining | tojson }};
+        let status = "{{ status }}"; 
+
+        function updateRemainingTime() {
+            let hours = Math.floor(timeRemaining / 3600);
+            let minutes = Math.floor((timeRemaining % 3600) / 60);
+            let seconds = timeRemaining % 60;
+            document.getElementById('remaining-time').textContent = 
+                `${hours}h ${minutes}m ${seconds}s`;
+
+            if (timeRemaining > 0) {
+                timeRemaining--;
+                setTimeout(updateRemainingTime, 1000);
+            } else {
+                document.getElementById('remaining-time').textContent = "Time is up!";
+            }
+        }
+
+        function copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            alert('Server IP copied to clipboard!');
+        }
+
+        function toggleStatusInfo() {
+            const remainingTimeLabel = document.getElementById('remaining-time-label');
+            const serverIpLabel = document.getElementById('server-ip-label');
+            if (status === "running") {
+                remainingTimeLabel.classList.remove('hidden');
+                serverIpLabel.classList.remove('hidden');
+                updateRemainingTime(); // Start the countdown if status is running
+            } else {
+                remainingTimeLabel.classList.add('hidden');
+                serverIpLabel.classList.add('hidden');
+            }
+        }
+
+        toggleStatusInfo();
+
+        if (status === "running") {
+            document.getElementById('add-start-link').classList.add('hidden');
+            document.getElementById('add-time-link').classList.remove('hidden');
+        } else {
+            document.getElementById('add-time-link').classList.add('hidden');
+            document.getElementById('add-start-link').classList.remove('hidden');
+        }
+
+        const serverIp = document.getElementById('server-ip');
+        const tooltip = document.getElementById('tooltip');
+
+        serverIp.addEventListener('click', function() {
+            copyToClipboard(this.textContent);
+        });
+
+        serverIp.addEventListener('mouseover', function() {
+            const rect = serverIp.getBoundingClientRect();
+            tooltip.style.top = `${rect.top - tooltip.offsetHeight}px`;
+            tooltip.style.left = `${rect.left}px`;
+            tooltip.style.visibility = 'visible';
+        });
+
+        serverIp.addEventListener('mouseout', function() {
+            tooltip.style.visibility = 'hidden';
+        });
+    </script>
+</body>
+</html>
