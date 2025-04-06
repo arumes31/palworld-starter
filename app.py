@@ -245,26 +245,36 @@ def captcha_error():
 def number_to_words(number):
     """Konvertiert eine Zahl in Worte und verwendet bis zu 10 verschiedene Formulierungen."""
     number_words = {
-        1: ["eins", "ein einzelnes", "ein einziges", "ein alleiniges", "nur eins", "eine einzige Einheit", "einzig", "ein Stück", "ein einziges Wesen", "ein Individuum"],
-        2: ["zwei", "ein Paar", "ein Paar von", "zwei Einheiten", "ein Duo", "zwei Wesen", "ein Paar von", "Zwillinge", "zweifach", "doppelt"],
-        3: ["drei", "ein Trio", "dreifach", "eine Gruppe von drei", "dreifach", "dreimal", "ein Drilling", "drei Wesen", "eine Triade", "Tri"],
-        4: ["vier", "ein Quartett", "vierfach", "eine Gruppe von vier", "vierfach", "eine Tetrade", "vier Einheiten", "ein Quartett", "ein Viererteam", "quaternär"],
-        5: ["fünf", "eine Handvoll", "ein Quintett", "fünffach", "eine Gruppe von fünf", "fünffach", "fünf Einheiten", "eine Pentade", "ein Fünferteam", "penta"],
-        6: ["sechs", "ein halbes Dutzend", "ein Sextett", "sechsfach", "eine Gruppe von sechs", "sechsfach", "sechs Einheiten", "eine Hexade", "sechs Wesen", "hexa"],
-        7: ["sieben", "Glückszahl sieben", "ein Septett", "siebenfach", "eine Gruppe von sieben", "siebenfach", "sieben Einheiten", "eine Heptade", "sieben Wesen", "hepta"],
-        8: ["acht", "ein Oktett", "achtfach", "eine Gruppe von acht", "achtfach", "acht Einheiten", "eine Gruppe von acht", "eine Oktave", "acht Wesen", "okta"],
-        9: ["neun", "eine Neun", "ein Nonett", "neunfach", "eine Gruppe von neun", "neunfach", "neun Einheiten", "eine Enneade", "neun Wesen", "ennea"],
-        10: ["zehn", "ein Jahrzehnt", "zehnfach", "eine Gruppe von zehn", "zehnfach", "zehn Einheiten", "ein Satz von zehn", "zehnfach", "ein Deca", "zehn Wesen"],
-        11: ["elf", "ein Dutzend minus eins", "eine Einheit von elf", "elfach", "eine Gruppe von elf", "zehnfach plus eins", "elf Einheiten", "eine Elf", "ein Satz von elf", "undecuple"],
-        12: ["zwölf", "ein Dutzend", "ein Zwölftel", "zwölffach", "eine Gruppe von zwölf", "duodekuple", "zwölf Einheiten", "ein Satz von zwölf", "ein Zwölftel", "duodeca"],
-        13: ["dreizehn", "ein Bäcker-Dutzend", "dreizehnfach", "eine Gruppe von dreizehn", "ein Satz von dreizehn", "dreizehn Einheiten", "eine Einheit von dreizehn", "eine Dreizehn", "ein Satz von dreizehn", "terdec"],
-        14: ["vierzehn", "eine Gruppe von vierzehn", "vierzehnfach", "ein Satz von vierzehn", "vierzehn Einheiten", "eine Einheit von vierzehn", "eine Vierzehn", "eine Tetrade aus vier plus zehn", "quattuordecuple", "vierzehn Wesen"],
-        15: ["fünfzehn", "eine Gruppe von fünfzehn", "fünfzehnfach", "ein Satz von fünfzehn", "fünfzehn Einheiten", "eine Einheit von fünfzehn", "eine Fünfzehn", "eine Pentade aus drei", "quindecuple", "fünfzehn Wesen"],
-        16: ["sechzehn", "eine Gruppe von sechzehn", "sechzehnfach", "ein Satz von sechzehn", "sechzehn Einheiten", "eine Einheit von sechzehn", "eine Sechzehn", "eine Tetrade aus vier", "sexdecuple", "sechzehn Wesen"],
-        17: ["siebzehn", "eine Gruppe von siebzehn", "siebzehnfach", "ein Satz von siebzehn", "siebzehn Einheiten", "eine Einheit von siebzehn", "eine Siebzehn", "ein Satz von siebzehn", "septendecuple", "siebzehn Wesen"],
-        18: ["achtzehn", "eine Gruppe von achtzehn", "achtzehnfach", "ein Satz von achtzehn", "achtzehn Einheiten", "eine Einheit von achtzehn", "eine Achtzehn", "ein Oktett plus zehn", "octodecuple", "achtzehn Wesen"],
-        19: ["neunzehn", "eine Gruppe von neunzehn", "neunzehnfach", "ein Satz von neunzehn", "neunzehn Einheiten", "eine Einheit von neunzehn", "eine Neunzehn", "ein Satz von neunzehn", "novemdecuple", "neunzehn Wesen"],
-        20: ["zwanzig", "eine Note", "eine Gruppe von zwanzig", "zwanzigfach", "zwanzig Einheiten", "eine Einheit von zwanzig", "eine Zwanzig", "ein Satz von zwanzig", "zwanzig Wesen", "vigesimal"]
+        1: ["eins"],
+        2: ["zwei"],
+        3: ["drei"],
+        4: ["vier"],
+        5: ["fünf"],
+        6: ["sechs"],
+        7: ["sieben"],
+        8: ["acht"],
+        9: ["neun"],
+        10: ["zehn"],
+        11: ["elf"],
+        12: ["zwölf"],
+        13: ["dreizehn"],
+        14: ["vierzehn"],
+        15: ["fünfzehn"],
+        16: ["sechzehn"],
+        17: ["siebzehn"],
+        18: ["achtzehn"],
+        19: ["neunzehn"],
+        20: ["zwanzig"],
+        21: ["einundzwanzig"],
+        22: ["zweiundzwanzig"],
+        23: ["dreiundzwanzig"],
+        24: ["vierundzwanzig"],
+        25: ["fünfundzwanzig"],
+        26: ["sechsundzwanzig"],
+        27: ["siebenundzwanzig"],
+        28: ["achtundzwanzig"],
+        29: ["neunundzwanzig"],
+        30: ["dreißig"]
     }
 
     return random.choice(number_words[number])
@@ -312,7 +322,7 @@ def generate_captcha():
         ("Elf", "magische Pilze", "ein mondbeschienener Hain", "ein mystisches Ereignis"),
         ("Himmlisches Wesen", "funkelnde Sterne", "ihr kosmisches Reich", "ein himmlisches Ereignis"),
         ("Zauberer", "verzauberte Tränke", "ein geheimes Gewölbe", "eine Beschwörung"),
-        ("mystisches Wesen", "verzauberte Federn", "ein versteckter Hain", "eine ätherische Brise"),
+        ("Mystisches Wesen", "verzauberte Federn", "ein versteckter Hain", "eine ätherische Brise"),
         ("Schutzengel", "himmlische Schriftrollen", "ein heiliges Archiv", "eine dunkle Macht"),
         ("Nekromant", "alte Runen", "ein verfluchtes Grab", "eine unheimliche Erscheinung"),
         ("Gestaltwandler", "mysteriöse Artefakte", "eine labyrinthartige Höhle", "eine rätselhafte Verwandlung"),
@@ -329,7 +339,21 @@ def generate_captcha():
         ("Gargoyle", "Steinstatuen", "eine gotische Kathedrale", "ein dunkler, stürmischer Abend"),
         ("Hexe", "mystische Amulette", "eine verzauberte Hütte", "eine Geisterstunde"),
         ("Greif", "legendäre Artefakte", "ein verlassener Berg", "ein stürmischer Aufstieg"),
-        ("Schattenmagier", "verfluchte Schmuckstücke", "eine geheime Zuflucht", "ein stiller, tödlicher Wind")
+        ("Schattenmagier", "verfluchte Schmuckstücke", "eine geheime Zuflucht", "ein stiller, tödlicher Wind"),
+        ("Samurai", "antike Katanas", "ein Kirschblütenhain", "eine ehrenvolle Herausforderung"),
+        ("Dämonenjäger", "verzauberte Waffen", "eine düstere Stadt", "eine nächtliche Jagd"),
+        ("Kobold", "goldene Münzen", "eine versteckte Höhle", "ein trickreicher Streich"),
+        ("Zentaur", "endlose Graslandschaften", "eine wilde Jagd", "ein Stammesritual"),
+        ("Eisdämon", "gefrorene Kristalle", "ein eisiger Palast", "ein Sturm aus Schnee und Frost"),
+        ("Dunkler Ritter", "zerbrochene Rüstungen", "eine verlassene Schlachtfeld", "eine verlorene Ehre"),
+        ("Lichtbringer", "strahlende Relikte", "ein heiliger Tempel", "ein Hoffnungsschimmer"),
+        ("Hexenmeister", "dämonische Grimoire", "ein verfluchter Turm", "ein Pakt mit der Finsternis"),
+        ("Zirkus der Schatten", "verzauberte Masken", "ein wandernder Zirkus", "eine unheimliche Vorstellung"),
+        ("Runenmeister", "leuchtende Runen", "eine verborgene Akademie", "ein verlorenes Wissen"),
+        ("Meereskönig", "versunkene Schätze", "eine mystische Insel", "ein Sturm auf hoher See"),
+        ("Piratenkapitän", "vergrabene Schätze", "ein Piratenschiff", "eine geheimnisvolle Karte"),
+        ("Schlangenpriester", "giftige Relikte", "ein Tempel im Dschungel", "ein tödliches Ritual"),
+        ("Alchemist", "mystische Elixiere", "ein geheimer Laborraum", "eine wundersame Verwandlung")
     ]
     
     theme = random.choice(themes)
@@ -346,8 +370,19 @@ def generate_captcha():
         f"{intro} {theme[2]}, sammelt der {theme[0]} {num1_words} {theme[1]}, während er den mystischen Wald durchquert. Zu seiner Überraschung erscheinen {num2_words} weitere {theme[1]}, die mit alter Magie schimmern. Wie viele {theme[1]} hat der {theme[0]} jetzt?",
         f"{intro} {theme[2]}, während ihrer Reise durch die verzauberten Wälder findet {theme[0]} {num1_words} {theme[1]} unter dem alten Laub verborgen. Während sie ihre Entdeckung bestaunen, erscheinen {num2_words} weitere {theme[1]}, die im Mondlicht funkeln. Wie viele {theme[1]} gibt es insgesamt?",
         f"{intro} {theme[2]}, entdeckt der {theme[0]} {num1_words} {theme[1]} während der Erkundung eines versteckten Tals. Plötzlich erscheinen {num2_words} weitere {theme[1]}, die wie magische Kugeln umherwirbeln. Wie viele {theme[1]} hat der {theme[0]} insgesamt?",
+        # New additional questions
+        f"{intro} {theme[2]}, während seiner Reise durch die alten Berge, entdeckt der {theme[0]} {num1_words} {theme[1]} in einem geheimen Tal. Plötzlich erscheinen {num2_words} weitere {theme[1]} aus dem Nebel. Wie viele {theme[1]} gibt es jetzt?",
+        f"{intro} {theme[2]}, im Dämmerlicht eines mystischen Waldes, findet {theme[0]} {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die im Wind tanzen. Wie viele {theme[1]} gibt es nun?",
+        f"{intro} {theme[2]}, während der {theme[0]} die verzauberten Hügel erklimmt, findet er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} neue {theme[1]}, die mit Glanz durch die Luft fliegen. Wie viele {theme[1]} sind es jetzt?",
+        f"{intro} {theme[2]}, im tiefen Wald, stößt der {theme[0]} auf {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]} mit magischem Glanz. Wie viele {theme[1]} gibt es nun?",
+        f"{intro} {theme[2]}, entdeckt {theme[0]} {num1_words} {theme[1]} an einem verborgenen Ort. Doch plötzlich erscheinen {num2_words} weitere {theme[1]}, die im Morgenlicht glitzern. Wie viele {theme[1]} sind es jetzt?",
+        f"{intro} {theme[2]}, während der {theme[0]} durch ein verzaubertes Tal geht, findet er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die in der Luft schweben. Wie viele {theme[1]} sind es nun?",
+        f"{intro} {theme[2]}, mitten im mystischen Garten, stößt der {theme[0]} auf {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die im sanften Wind fliegen. Wie viele {theme[1]} gibt es jetzt?",
+        f"{intro} {theme[2]}, als der {theme[0]} den alten Tempel erkundet, findet er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die mit goldenen Flügeln schimmern. Wie viele {theme[1]} gibt es nun?",
+        f"{intro} {theme[2]}, entdeckt {theme[0]} {num1_words} {theme[1]} in einer alten Höhle. Doch dann erscheinen {num2_words} weitere {theme[1]}, die mit magischem Licht glänzen. Wie viele {theme[1]} gibt es jetzt?",
+        f"{intro} {theme[2]}, während der {theme[0]} durch das mystische Tal wandert, entdeckt er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die im Sonnenlicht leuchten. Wie viele {theme[1]} gibt es insgesamt?",
     ]
-    
+
     subtraction_questions = [
         f"{intro} {theme[2]}, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Nach einer plötzlichen Begegnung mit einer mystischen Kraft werden {num2_words} dieser {theme[1]} weggenommen. Wie viele {theme[1]} bleiben übrig?",
         f"{intro} {theme[2]}, in einem mystischen Land beginnt der {theme[0]} mit {num1_words} {theme[1]}. Nach einer magischen Störung verschwinden {num2_words} {theme[1]} im Äther. Wie viele {theme[1]} bleiben übrig?",
@@ -357,7 +392,17 @@ def generate_captcha():
         f"{intro} {theme[2]}, beginnt ein {theme[0]} mit {num1_words} {theme[1]}. Doch während eines unvorhergesehenen Ereignisses werden {num2_words} dieser {theme[1]} von einer geheimnisvollen Kraft genommen. Wie viele {theme[1]} bleiben in ihrem Besitz?",
         f"{intro} {theme[2]}, im Herzen des alten Landes hat der {theme[0]} {num1_words} {theme[1]}. Nach einem magischen Missgeschick verschwinden {num2_words} {theme[1]}. Wie viele {theme[1]} bleiben übrig?",
         f"{intro} {theme[2]}, begegnet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} gehen durch ein plötzliches magisches Ereignis verloren. Wie viele {theme[1]} bleiben dem {theme[0]}?",
-        f"{intro} {theme[2]}, während er die mystischen Wälder erkundet, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} gehen durch ein magisches Phänomen verloren. Wie viele {theme[1]} behält der {theme[0]}?"
+        f"{intro} {theme[2]}, während er die mystischen Wälder erkundet, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} gehen durch ein magisches Phänomen verloren. Wie viele {theme[1]} behält der {theme[0]}?",
+        # New additional questions
+        f"{intro} {theme[2]}, auf seiner Reise durch ein mystisches Tal, findet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden im Nebel. Wie viele {theme[1]} bleiben übrig?",
+        f"{intro} {theme[2]}, im Land der Geheimnisse, findet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden in der Dunkelheit. Wie viele {theme[1]} bleiben zurück?",
+        f"{intro} {theme[2]}, während {theme[0]} durch die weiten Ebenen wandert, beginnt er mit {num1_words} {theme[1]}. Doch dann verschwinden {num2_words} dieser {theme[1]} in den Wind. Wie viele {theme[1]} sind noch übrig?",
+        f"{intro} {theme[2]}, im verzauberten Dschungel, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden, als ein mystischer Sturm aufzieht. Wie viele {theme[1]} bleiben übrig?",
+        f"{intro} {theme[2]}, als der {theme[0]} den alten Tempel betritt, findet er {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden durch einen magischen Zauber. Wie viele {theme[1]} bleiben zurück?",
+        f"{intro} {theme[2]}, bei der Erkundung einer alten Stadt findet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden, als ein mystischer Lichtstrahl sie erfasst. Wie viele {theme[1]} bleiben übrig?",
+        f"{intro} {theme[2]}, während {theme[0]} einen verborgenen Pfad erkundet, findet er {num1_words} {theme[1]}. Doch dann verschwinden {num2_words} dieser {theme[1]} im Nebel. Wie viele {theme[1]} bleiben übrig?",
+        f"{intro} {theme[2]}, entdeckt {theme[0]} {num1_words} {theme[1]} in einem geheimen Garten. Doch {num2_words} dieser {theme[1]} verschwinden, als ein magischer Wind sie erfasst. Wie viele {theme[1]} bleiben übrig?",
+        f"{intro} {theme[2]}, während der {theme[0]} durch die ewigen Berge wandert, beginnt er mit {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden, als ein magischer Sturm aufzieht. Wie viele {theme[1]} bleiben übrig?",
     ]
 
     if operation == '+':
