@@ -30,7 +30,11 @@
             <span id="copy-toast" class="toast">Copied!</span>
         </div>
         <div class="actions">
-            <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+4 Hours</a>
+            {% if status == 'running' %}
+                <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+4 Hours</a>
+            {% else %}
+                <a href="{{ url_for('captcha_start') }}" id="start-link" class="btn-primary">Start Server (+4 Hours)</a>
+            {% endif %}
         </div>
     </div>
 </div>
