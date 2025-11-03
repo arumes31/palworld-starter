@@ -1,95 +1,78 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ docker_container_name }}: {{ status }}</title>
-    <link rel="icon" href="/static/5.ico" type="image/x-icon">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <div class="container">
-        <h1>{{ docker_container_name }}: {{ status }}</h1>
-        <div id="status-info">
-            <h2 id="remaining-time-label" class="hidden">Remaining Time: <span id="remaining-time"></span></h2>
-            <h2 id="server-ip-label" class="hidden">Server-IP: <span id="server-ip" class="copyable">80.66.59.216:8211</span></h2>
-            <div id="tooltip" class="tooltip">Click to copy</div>
-        </div>
-        <br>
-        <br>
-        <a href="{{ url_for('captcha_start') }}" id="add-start-link">START</a>
-        <a href="{{ url_for('captcha') }}" id="add-time-link">Add 4 hours</a>
+{% extends "base.html" %}
+{% block title %}{{ docker_container_name }} – {{ status|title }}{% endblock %}
+
+{% block content %}
+<div class="glass-card">
+    <div class="status-header">
+        <h2 class="status-title">
+            {{ docker_container_name }}
+            <span class="status-badge {{ status }}">{{ status|title }}</span>
+        </h2>
     </div>
-    
-    <script>
-        let timeRemaining = {{ time_remaining | tojson }};
-        let status = "{{ status }}"; 
 
-        function updateRemainingTime() {
-            let hours = Math.floor(timeRemaining / 3600);
-            let minutes = Math.floor((timeRemaining % 3600) / 60);
-            let seconds = timeRemaining % 60;
-            document.getElementById('remaining-time').textContent = 
-                `${hours}h ${minutes}m ${seconds}s`;
+    <div class="status-block">
+        <div class="info-row">
+            <span class="label">
+                Remaining Time:
+                <i class="info-icon" title="The server is only paused and can be reactivated here at any time.">Info</i>
+            </span>
+            <span id="remaining-time" class="value"></span>
+        </div>
+        <div class="info-row">
+            <span class="label">Server IP:</span>
+            <span id="server-ip" class="copyable value">80.66.59.216:8211</span>
+            <span id="copy-toast" class="toast">Copied!</span>
+        </div>
+        <div class="actions">
+            <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+4 Hours</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
 
-            if (timeRemaining > 0) {
-                timeRemaining--;
-                setTimeout(updateRemainingTime, 1000);
+{% block scripts %}
+<script>
+    const timeRemaining = {{ time_remaining | tojson }};
+    const status = "{{ status }}";
+
+    function formatTime(sec) {
+        const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+        const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+        const s = (sec % 60).toString().padStart(2, '0');
+        return `${h}h ${m}m ${s}s`;
+    }
+
+    function startCountdown() {
+        let left = timeRemaining;
+        const el = document.getElementById('remaining-time');
+        const update = () => {
+            if (left >= 0) {
+                el.textContent = formatTime(left--);
+                setTimeout(update, 1000);
             } else {
-                document.getElementById('remaining-time').textContent = "Time is up!";
+                el.textContent = "Time is up!";
             }
-        }
+        };
+        update();
+    }
 
-        function copyToClipboard(text) {
-            const textarea = document.createElement('textarea');
-            textarea.value = text;
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
-            alert('Server IP copied to clipboard!');
-        }
-
-        function toggleStatusInfo() {
-            const remainingTimeLabel = document.getElementById('remaining-time-label');
-            const serverIpLabel = document.getElementById('server-ip-label');
-            if (status === "running") {
-                remainingTimeLabel.classList.remove('hidden');
-                serverIpLabel.classList.remove('hidden');
-                updateRemainingTime(); // Start the countdown if status is running
-            } else {
-                remainingTimeLabel.classList.add('hidden');
-                serverIpLabel.classList.add('hidden');
-            }
-        }
-
-        toggleStatusInfo();
-
-        if (status === "running") {
-            document.getElementById('add-start-link').classList.add('hidden');
-            document.getElementById('add-time-link').classList.remove('hidden');
-        } else {
-            document.getElementById('add-time-link').classList.add('hidden');
-            document.getElementById('add-start-link').classList.remove('hidden');
-        }
-
-        const serverIp = document.getElementById('server-ip');
-        const tooltip = document.getElementById('tooltip');
-
-        serverIp.addEventListener('click', function() {
-            copyToClipboard(this.textContent);
+    function copyIP() {
+        const text = document.getElementById('server-ip').textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            const toast = document.getElementById('copy-toast');
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
         });
+    }
 
-        serverIp.addEventListener('mouseover', function() {
-            const rect = serverIp.getBoundingClientRect();
-            tooltip.style.top = `${rect.top - tooltip.offsetHeight}px`;
-            tooltip.style.left = `${rect.left}px`;
-            tooltip.style.visibility = 'visible';
-        });
+    function initUI() {
+        if (status === 'running') {
+            document.querySelectorAll('.info-row').forEach(row => row.style.display = 'flex');
+            startCountdown();
+        }
+    }
 
-        serverIp.addEventListener('mouseout', function() {
-            tooltip.style.visibility = 'hidden';
-        });
-    </script>
-</body>
-</html>
+    document.getElementById('server-ip')?.addEventListener('click', copyIP);
+    initUI();
+</script>
+{% endblock %}

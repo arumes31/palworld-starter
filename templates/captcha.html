@@ -1,21 +1,37 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verification</title>
-    <link rel="icon" href="/static/5.ico" type="image/x-icon">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <div class="container">
-        <h1>Verification</h1>
-        <p>Please solve to proceed:</p>
-        <form action="{{ url_for('add_time') }}" method="POST">
-            <p>{{ question }} = <input type="number" name="captcha_answer" required></p>
-            <br><br>
-            <button type="submit">Submit</button>
-        </form>
-    </div>
-</body>
-</html>
+{# templates/captcha.html #}
+{% extends "base.html" %}
+{% block title %}Add 4 Hours – Solve Puzzle{% endblock %}
+
+{% block content %}
+<div class="glass-card">
+    <h2 class="form-title">Verification Required</h2>
+    <p class="form-subtitle">Solve the puzzle to add 4 hours.</p>
+
+    <form action="{{ url_for('add_time') }}" method="POST" class="captcha-form">
+        <!-- ADD THIS LINE: CSRF Token -->
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="input-container">
+            <p class="question">{{ question }}</p>
+            <input type="number"
+                   name="captcha_answer"
+                   id="captcha_answer"
+                   autocomplete="off"
+                   required
+                   min="0"
+                   placeholder="Enter answer"
+                   class="captcha-input">
+        </div>
+
+        <button type="submit" class="btn-primary full-width">Submit Answer</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('captcha_answer')?.focus();
+    });
+</script>
+{% endblock %}

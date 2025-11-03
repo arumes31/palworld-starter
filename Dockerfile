@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . /app
 
 # Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 RUN pip install Werkzeug==2.0.3
 RUN pip install requests==2.31.0
 RUN pip install --upgrade docker

@@ -9,6 +9,8 @@ import requests
 import threading
 import random
 import secrets
+from datetime import datetime
+from flask_wtf.csrf import CSRFProtect
 
 # Set up logging for verbose debugging
 logging.basicConfig(level=logging.DEBUG)
@@ -22,6 +24,12 @@ logger.debug(f"Generated Secret Key successfully: {app_secret_key}")  # Print th
 # Primary Flask app (main app)
 app = Flask(__name__)
 app.secret_key = app_secret_key  # Use the generated key here
+
+csrf = CSRFProtect(app)
+
+@app.context_processor
+def inject_now():
+    return {'now': datetime.utcnow}
 
 # Define the Docker client with the correct URL
 docker_host = os.getenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
@@ -416,6 +424,7 @@ def generate_captcha():
 ###CAPTCHA END####
 ##################
 
+@csrf.exempt
 @app.route('/trigger_timer', methods=['POST'])
 def trigger_timer():
     """ This route should be triggered periodically """
@@ -429,8 +438,31 @@ def trigger_timer_task():
     except requests.RequestException as e:
         logger.error(f"Error triggering /trigger_timer: {e}")
 
+def broadcast_server_link():
+    """Broadcast the server start link to in-game chat"""
+    message = "to start this server visit https://pal.wowcraft.pw/"
+    try:
+        container = client.containers.get(CONTAINER_NAME)
+        if container.status == 'running':
+            exec_result = container.exec_run(f'rcon-cli "Broadcast {message}"')
+            if exec_result.exit_code == 0:
+                logger.debug(f"Server link broadcasted: {message}")
+            else:
+                logger.error(f"Broadcast failed: {exec_result.output.decode()}")
+    except docker.errors.NotFound:
+        logger.error("Container not found for broadcast")
+    except Exception as e:
+        logger.error(f"Error broadcasting server link: {e}")
+
 # Set up the scheduler
 scheduler = BackgroundScheduler()
+scheduler.add_job(
+    func=broadcast_server_link,
+    trigger=IntervalTrigger(minutes=30),
+    id='server_link_broadcast_job',
+    name='Broadcast server link every 30 minutes',
+    replace_existing=True
+)
 scheduler.add_job(
     func=trigger_timer_task,
     trigger=IntervalTrigger(seconds=30),
