@@ -124,8 +124,18 @@ def index():
     global time_remaining
     status = get_container_status()
     docker_container_name = os.getenv('DOCKER_CONTAINER_NAME', 'DefaultContainerName')
+    
+    # Load Discord URL from environment (fallback to default)
+    discord_url = os.getenv('DISCORD_INVITE_URL', 'https://discord.gg/XXXXX')
+
     logger.debug(f"Container Name {docker_container_name}, status: {status}, Time remaining: {time_remaining}")
-    response = make_response(render_template('index.html', docker_container_name=docker_container_name, status=status, time_remaining=time_remaining))
+    response = make_response(render_template(
+        'index.html',
+        docker_container_name=docker_container_name,
+        status=status,
+        time_remaining=time_remaining,
+        discord_url=discord_url
+    ))
     response.headers['Cache-Control'] = 'no-store'
     return response
 

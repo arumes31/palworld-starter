@@ -2,6 +2,12 @@
 {% block title %}{{ docker_container_name }} – {{ status|title }}{% endblock %}
 
 {% block content %}
+<!-- Discord Floating Action Button (Top Left) – URL from env -->
+<a href="{{ discord_url }}" target="_blank" class="discord-fab" title="Join our Discord">
+    <span class="discord-icon"></span>
+    <span class="tooltip">Join Discord</span>
+</a>
+
 <div class="glass-card">
     <div class="status-header">
         <h2 class="status-title">

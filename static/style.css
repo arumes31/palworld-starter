@@ -127,6 +127,18 @@ body { min-height: 100vh; display: flex; flex-direction: column; color: #e0f2ff;
     font-size: 1.15rem;
 }
 
+/* ==== Info Icon (Tooltip) ==== */
+.info-icon {
+    cursor: help;
+    margin-left: 0.4rem;
+    font-size: 0.9rem;
+    color: #a0c4ff;
+    font-style: normal;
+}
+.info-icon:hover {
+    color: #fff;
+}
+
 /* ==== Copy Toast ==== */
 .copyable {
     cursor: pointer;
@@ -176,6 +188,9 @@ body { min-height: 100vh; display: flex; flex-direction: column; color: #e0f2ff;
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
 }
 .btn-primary:hover {
     transform: translateY(-3px);
@@ -194,57 +209,85 @@ body { min-height: 100vh; display: flex; flex-direction: column; color: #e0f2ff;
 }
 .btn-primary:hover::before { left: 100%; }
 
-.full-width { width: 100%; }
-
-/* ==== Input Container ==== */
-.input-container {
-    background: rgba(20,25,55,0.92);
-    backdrop-filter: blur(12px);
-    border-radius: 16px;
-    padding: 1.6rem;
-    border: 1px solid rgba(100,150,255,0.3);
-    margin-bottom: 1.8rem;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.2);
-}
-
-.question {
-    margin-bottom: 1.2rem;
-    font-size: 1.2rem;
-    line-height: 1.6;
-    color: #e0f2ff;
-    text-align: left;
-}
-
-.captcha-input {
-    width: 100%;
-    padding: 1.2rem 1.5rem;
-    font-size: 1.2rem;
-    background: rgba(255,255,255,0.12);
-    border: 2px solid rgba(100,150,255,0.4);
-    border-radius: 14px;
-    color: #fff;
+/* ==== Discord Floating Action Button (Top Left) – Pure CSS Icon ==== */
+.discord-fab {
+    position: fixed;
+    top: 1.5rem;
+    left: 1.5rem;
+    z-index: 1000;
+    background: linear-gradient(135deg, #7289da, #5a6fc0);
+    color: white;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    box-shadow: 0 8px 20px rgba(114, 137, 218, 0.4);
     transition: all 0.3s ease;
+    text-decoration: none;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
 }
-.captcha-input::placeholder { color: rgba(255,255,255,0.6); }
-.captcha-input:focus {
-    outline: none;
-    border-color: #4a90e2;
-    background: rgba(255,255,255,0.2);
-    box-shadow: 0 0 0 5px rgba(74,144,226,0.3);
-    transform: scale(1.02);
+.discord-fab:hover {
+    transform: translateY(-4px) scale(1.05);
+    box-shadow: 0 12px 28px rgba(114, 137, 218, 0.5);
+}
+.discord-fab:active {
+    transform: translateY(-2px);
 }
 
-/* ==== Form Title ==== */
-.form-title {
-    font-size: 1.9rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-    color: #fff;
+/* Pure CSS Discord Icon */
+.discord-icon {
+    position: relative;
+    width: 32px;
+    height: 32px;
 }
-.form-subtitle {
-    color: #a0c4ff;
-    margin-bottom: 2rem;
-    font-size: 1.1rem;
+.discord-icon::before {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 22px; height: 22px;
+    background: white;
+    border-radius: 50% 50% 50% 0;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+}
+.discord-icon::after {
+    content: "";
+    position: absolute;
+    bottom: 6px; left: 50%;
+    width: 6px; height: 6px;
+    background: white;
+    border-radius: 50%;
+    transform: translateX(-50%);
+    box-shadow: -10px 0 0 white, 10px 0 0 white;
+}
+
+/* Tooltip */
+.discord-fab .tooltip {
+    position: absolute;
+    right: -110px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(15, 20, 40, 0.95);
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(100, 150, 255, 0.3);
+}
+.discord-fab:hover .tooltip {
+    opacity: 1;
+    visibility: visible;
+    right: -120px;
 }
 
 /* ==== Animations ==== */
@@ -259,15 +302,7 @@ body { min-height: 100vh; display: flex; flex-direction: column; color: #e0f2ff;
     .glass-card { padding: 2rem; }
     .status-title { font-size: 1.6rem; flex-direction: column; gap: 0.5rem; }
     .btn-primary { min-width: 160px; padding: 1rem 2rem; }
-    .input-container { padding: 1.4rem; }
-}
-
-.info-icon {
-    cursor: help;
-    margin-left: 0.4rem;
-    font-size: 0.9rem;
-    color: #a0c4ff;
-}
-.info-icon:hover {
-    color: #fff;
+    .discord-fab { width: 48px; height: 48px; top: 1rem; left: 1rem; }
+    .discord-fab .tooltip { font-size: 0.8rem; padding: 0.4rem 0.8rem; right: -100px; }
+    .discord-fab:hover .tooltip { right: -110px; }
 }
