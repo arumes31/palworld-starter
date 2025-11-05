@@ -97,7 +97,7 @@ def get_discord_invite():
             'max_age': 86400,
             'max_uses': 0,
             'temporary': False,
-            'unique': True  # Reuse same invite if identical
+            'unique': True
         }
         response = requests.post(
             f'https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/invites',
@@ -106,7 +106,6 @@ def get_discord_invite():
             timeout=10
         )
 
-        # Accept both 200 and 201 as success
         if response.status_code in (200, 201):
             invite_data = response.json()
             invite_code = invite_data.get('code')
@@ -171,7 +170,7 @@ def index():
     global time_remaining
     status = get_container_status()
     docker_container_name = os.getenv('DOCKER_CONTAINER_NAME', 'DefaultContainerName')
-    discord_url = get_discord_invite()  # Dynamic!
+    discord_url = get_discord_invite()
 
     logger.debug(f"Index: {docker_container_name}, {status}, {time_remaining}s, Discord: {discord_url}")
     response = make_response(render_template(
@@ -188,207 +187,187 @@ def index():
 def start_container():
     global time_remaining, broadcasted_last
     captcha_answer = request.form.get('captcha_answer')
+    
     if captcha_answer and int(captcha_answer) == session.get('captcha_answer'):
         with time_lock:
             try:
                 container = client.containers.get(CONTAINER_NAME)
                 if container.status != 'running':
                     container.start()
+                    logger.debug(f"Container '{CONTAINER_NAME}' started")
+                    time_remaining = max(time_remaining, 900)
+                    time_remaining += 14400
+                    save_time_remaining(time_remaining)
+                    broadcasted_last = time.time()
             except docker.errors.NotFound:
-                pass
-            time_remaining = 18000
-            broadcasted_last = 0
-            save_time_remaining(time_remaining)
+                logger.error("Container not found")
+            except Exception as e:
+                logger.error(f"Start error: {e}")
         return redirect(url_for('index'))
     else:
-        return redirect(url_for('captcha_error'))
+        return redirect(url_for('captcha_error', origin='start_container'))
 
-@app.route('/update_timer')
 def update_timer():
-    if request.remote_addr not in ['127.0.0.1', '::1']:
-        abort(403)
-    global time_remaining, broadcasted_last
+    global time_remaining
     with time_lock:
         if time_remaining > 0:
             time_remaining -= 30
-            save_time_remaining(time_remaining)
-            if time_remaining <= 0:
+            if time_remaining < 0:
                 time_remaining = 0
+            save_time_remaining(time_remaining)
+            if time_remaining == 0:
+                stop_container()
     return "OK"
 
+# ==================
+# CAPTCHA FUNCTIONS
+# ==================
 
-##################    
-###CAPTCHA START####
-##################
+def generate_captcha(language='en'):
+    operation = random.choice(['+', '-'])
+    num1 = random.randint(100, 199)
+    num2 = random.randint(0, 99) if operation == '-' else random.randint(1, 99)
+    answer = num1 + num2 if operation == '+' else num1 - num2
 
-def number_to_words(number):
-    """Konvertiert eine Zahl in Worte und verwendet bis zu 10 verschiedene Formulierungen."""
-    number_words = {
-        1: ["eins"],
-        2: ["zwei"],
-        3: ["drei"],
-        4: ["vier"],
-        5: ["fünf"],
-        6: ["sechs"],
-        7: ["sieben"],
-        8: ["acht"],
-        9: ["neun"],
-        10: ["zehn"],
-        11: ["elf"],
-        12: ["zwölf"],
-        13: ["dreizehn"],
-        14: ["vierzehn"],
-        15: ["fünfzehn"],
-        16: ["sechzehn"],
-        17: ["siebzehn"],
-        18: ["achtzehn"],
-        19: ["neunzehn"],
-        20: ["zwanzig"],
-        21: ["einundzwanzig"],
-        22: ["zweiundzwanzig"],
-        23: ["dreiundzwanzig"],
-        24: ["vierundzwanzig"],
-        25: ["fünfundzwanzig"],
-        26: ["sechsundzwanzig"],
-        27: ["siebenundzwanzig"],
-        28: ["achtundzwanzig"],
-        29: ["neunundzwanzig"],
-        30: ["dreißig"]
+    # === Number to words (German & English) ===
+    def number_to_words(n, lang):
+        ones = {
+            'de': ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn',
+                   'elf', 'zwölf', 'dreizehn', 'vierzehn', 'fünfzehn', 'sechzehn', 'siebzehn', 'achtzehn', 'neunzehn'],
+            'en': ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+                   'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen']
+        }
+        tens = {
+            'de': ['', '', 'zwanzig', 'dreißig', 'vierzig', 'fünfzig', 'sechzig', 'siebzig', 'achtzig', 'neunzig'],
+            'en': ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+        }
+        if n < 20:
+            return ones[lang][n]
+        elif n < 100:
+            ten, one = divmod(n, 10)
+            connector = 'und' if one and lang == 'de' else '-' if one and lang == 'en' else ''
+            return f"{tens[lang][ten]}{connector}{ones[lang][one] if one else ''}".strip()
+        else:
+            h, r = divmod(n, 100)
+            h_str = 'einhundert' if h == 1 and lang == 'de' else ones[lang][h] + ('hundert' if lang == 'de' else 'hundred')
+            return f"{h_str}{number_to_words(r, lang) if r else ''}"
+
+    num1_words = number_to_words(num1, language)
+    num2_words = number_to_words(num2, language)
+
+    # === Themes ===
+    themes = {
+        'de': [
+            ['Abenteurer', 'Schätze', 'im dichten Wald'],
+            ['Zauberer', 'Zauberstäbe', 'auf dem magischen Berg'],
+            ['Ritter', 'Schwerter', 'in der alten Burg'],
+            ['Entdecker', 'Karten', 'am Ufer des Meeres'],
+            ['Jäger', 'Pfeile', 'in der Wildnis'],
+            ['Alchemist', 'Tränke', 'im Labor'],
+            ['Piratenkapitän', 'Goldmünzen', 'auf hoher See'],
+            ['Drachenreiter', 'Schuppen', 'in den Wolken'],
+            ['Gärtner', 'Blumen', 'im verzauberten Garten'],
+            ['Koch', 'Zutaten', 'in der Küche']
+        ],
+        'en': [
+            ['adventurer', 'treasures', 'in the dense forest'],
+            ['wizard', 'wands', 'on the magical mountain'],
+            ['knight', 'swords', 'in the ancient castle'],
+            ['explorer', 'maps', 'by the seaside'],
+            ['hunter', 'arrows', 'in the wilderness'],
+            ['alchemist', 'potions', 'in the laboratory'],
+            ['pirate captain', 'gold coins', 'on the high seas'],
+            ['dragon rider', 'scales', 'in the clouds'],
+            ['gardener', 'flowers', 'in the enchanted garden'],
+            ['cook', 'ingredients', 'in the kitchen']
+        ]
+    }
+    theme = random.choice(themes[language])
+    actor = theme[0].capitalize() if language == 'en' else theme[0]
+    item = theme[1]
+    setting = theme[2]
+
+    # === Intro phrases ===
+    intros = {
+        'de': [
+            f"Stell dir vor, in einem epischen Abenteuer: Der {actor} {setting}",
+            f"In einer fernen Welt: Der {actor} {setting}",
+            f"In einer mystischen Geschichte: Der {actor} {setting}"
+        ],
+        'en': [
+            f"Imagine in an epic adventure: The {actor} {setting}",
+            f"In a distant world: The {actor} {setting}",
+            f"In a mystical story: The {actor} {setting}"
+        ]
+    }
+    intro = random.choice(intros[language])
+
+    # === Addition Templates (20+ variations) ===
+    addition_templates = {
+        'de': [
+            f"{intro} beginnt mit {num1_words} {item}. Plötzlich findet er {num2_words} weitere {item}.",
+            f"{intro} hat {num1_words} {item} bei sich. Dann entdeckt er {num2_words} weitere {item} in einer Truhe.",
+            f"{intro} zählt {num1_words} {item}. Plötzlich erscheinen {num2_words} neue {item}.",
+            f"{intro} trägt {num1_words} {item}. Am Wegesrand findet er {num2_words} zusätzliche {item}.",
+            f"{intro} beginnt mit {num1_words} {item}. Ein Händler schenkt ihm {num2_words} weitere {item}.",
+            f"{intro} besitzt {num1_words} {item}. Dann fällt {num2_words} {item} vom Himmel.",
+            f"{intro} sammelt {num1_words} {item}. In einer Höhle entdeckt er {num2_words} weitere {item}.",
+            f"{intro} hat {num1_words} {item}. Ein Freund gibt ihm {num2_words} zusätzliche {item}.",
+            f"{intro} startet mit {num1_words} {item}. Am Ende des Pfads findet er {num2_words} neue {item}.",
+            f"{intro} zählt {num1_words} {item}. Dann wachsen {num2_words} neue {item} aus dem Boden.",
+        ],
+        'en': [
+            f"{intro} starts with {num1_words} {item}. Suddenly, he finds {num2_words} more {item}.",
+            f"{intro} has {num1_words} {item} with him. Then he discovers {num2_words} more {item} in a chest.",
+            f"{intro} counts {num1_words} {item}. Suddenly, {num2_words} new {item} appear.",
+            f"{intro} carries {num1_words} {item}. By the roadside, he finds {num2_words} additional {item}.",
+            f"{intro} begins with {num1_words} {item}. A merchant gives him {num2_words} more {item}.",
+            f"{intro} owns {num1_words} {item}. Then {num2_words} {item} fall from the sky.",
+            f"{intro} collects {num1_words} {item}. In a cave, he discovers {num2_words} more {item}.",
+            f"{intro} has {num1_words} {item}. A friend gives him {num2_words} extra {item}.",
+            f"{intro} starts with {num1_words} {item}. At the end of the path, he finds {num2_words} new {item}.",
+            f"{intro} counts {num1_words} {item}. Then {num2_words} new {item} grow from the ground.",
+        ]
     }
 
-    return random.choice(number_words[number])
+    # === Subtraction Templates (20+ variations) ===
+    subtraction_templates = {
+        'de': [
+            f"{intro} beginnt mit {num1_words} {item}. Doch dann verschwinden {num2_words} dieser {item} im Nebel.",
+            f"{intro} hat {num1_words} {item}. Plötzlich lösen sich {num2_words} {item} in Rauch auf.",
+            f"{intro} besitzt {num1_words} {item}. Ein Dieb stiehlt {num2_words} davon.",
+            f"{intro} zählt {num1_words} {item}. Dann fallen {num2_words} {item} in einen Abgrund.",
+            f"{intro} trägt {num1_words} {item}. {num2_words} davon zerbrechen bei einem Sturm.",
+            f"{intro} sammelt {num1_words} {item}. Ein Drache verbrennt {num2_words} davon.",
+            f"{intro} hat {num1_words} {item}. {num2_words} werden von einem Fluch zerstört.",
+            f"{intro} beginnt mit {num1_words} {item}. Ein starker Wind trägt {num2_words} davon.",
+            f"{intro} besitzt {num1_words} {item}. {num2_words} versinken im Treibsand.",
+            f"{intro} zählt {num1_words} {item}. Dann explodieren {num2_words} davon.",
+        ],
+        'en': [
+            f"{intro} starts with {num1_words} {item}. But then {num2_words} of these {item} disappear in the mist.",
+            f"{intro} has {num1_words} {item}. Suddenly, {num2_words} {item} dissolve into smoke.",
+            f"{intro} owns {num1_words} {item}. A thief steals {num2_words} of them.",
+            f"{intro} counts {num1_words} {item}. Then {num2_words} {item} fall into a chasm.",
+            f"{intro} carries {num1_words} {item}. {num2_words} of them break in a storm.",
+            f"{intro} collects {num1_words} {item}. A dragon burns {num2_words} of them.",
+            f"{intro} has {num1_words} {item}. {num2_words} are destroyed by a curse.",
+            f"{intro} begins with {num1_words} {item}. A strong wind carries {num2_words} away.",
+            f"{intro} owns {num1_words} {item}. {num2_words} sink into quicksand.",
+            f"{intro} counts {num1_words} {item}. Then {num2_words} of them explode.",
+        ]
+    }
 
-def generate_captcha():
-    # Randomly choose between addition and subtraction
-    operation = random.choice(['+', '-'])
-    
-    # Generate random numbers
-    num1 = random.randint(1, 20)
-    num2 = random.randint(1, 20)
-    
-    # Ensure the result is positive for subtraction
-    if operation == '-':
-        if num1 < num2:
-            num1, num2 = num2, num1
-        answer = num1 - num2
-    else:
-        answer = num1 + num2
-    
-    session['captcha_answer'] = answer
-    
-    # Convert numbers to words using the number_to_words function
-    num1_words = number_to_words(num1)
-    num2_words = number_to_words(num2)
-    
-    # Themes and creatures for more randomization
-    intros = [
-        "Im Herzen des alten Waldes von",
-        "Tief in den schimmernden Reichen von",
-        "Inmitten der zeitlosen Ruinen von",
-        "Unter dem wachsamen Blick der himmlischen Sterne über",
-        "Im ewigen Mondlicht von",
-        "In der mystischen Weite von",
-        "In den verborgenen Tiefen von",
-        "Unter den heiligen Böden von",
-        "Am Rande des sagenhaften Landes von",
-        "Im geheimen Heiligtum von"
-    ]
-
-    themes = [
-        ("Zauberer", "alte Zauberbücher", "eine staubige Bibliothek", "ein schimmerndes Portal"),
-        ("Drache", "mondbeschienene Diamanten", "ein verstecktes Versteck", "ein Meteoritenregen"),
-        ("Feenkönigin", "verzauberte Lilien", "mystische Wiesen", "eine magische Quelle"),
-        ("Elf", "magische Pilze", "ein mondbeschienener Hain", "ein mystisches Ereignis"),
-        ("Himmlisches Wesen", "funkelnde Sterne", "ihr kosmisches Reich", "ein himmlisches Ereignis"),
-        ("Zauberer", "verzauberte Tränke", "ein geheimes Gewölbe", "eine Beschwörung"),
-        ("Mystisches Wesen", "verzauberte Federn", "ein versteckter Hain", "eine ätherische Brise"),
-        ("Schutzengel", "himmlische Schriftrollen", "ein heiliges Archiv", "eine dunkle Macht"),
-        ("Nekromant", "alte Runen", "ein verfluchtes Grab", "eine unheimliche Erscheinung"),
-        ("Gestaltwandler", "mysteriöse Artefakte", "eine labyrinthartige Höhle", "eine rätselhafte Verwandlung"),
-        ("Meerjungfrau", "Korallenschätze", "eine Unterwassergrotte", "eine mondbeschienene Flut"),
-        ("Ninja", "alte Schriftrollen", "ein versteckter Tempel", "ein heimlicher Ansatz"),
-        ("Golem", "elementare Kristalle", "eine vergessene Festung", "ein mystisches Erwachen"),
-        ("Dschinn", "alte Lampen", "eine Wüstenoase", "ein plötzlicher Wirbelwind"),
-        ("Vampirfürst", "Blutsteinrelikte", "ein schattiges Schloss", "ein Mitternachtsmahl"),
-        ("Werwolf", "Silbertalismane", "ein dunkler Wald", "ein Vollmond"),
-        ("Naturgeist", "glühende Flora", "ein ruhiger Hain", "ein saisonaler Wechsel"),
-        ("Phönix", "feurige Federn", "ein alter Scheiterhaufen", "eine Sonnenaufgangswiedergeburt"),
-        ("Zeitreisender", "Chrono-Gadgets", "eine futuristische Stadtlandschaft", "ein Zeitparadoxon"),
-        ("Druide", "alte Runensteine", "ein heiliger Hain", "ein saisonales Ritual"),
-        ("Gargoyle", "Steinstatuen", "eine gotische Kathedrale", "ein dunkler, stürmischer Abend"),
-        ("Hexe", "mystische Amulette", "eine verzauberte Hütte", "eine Geisterstunde"),
-        ("Greif", "legendäre Artefakte", "ein verlassener Berg", "ein stürmischer Aufstieg"),
-        ("Schattenmagier", "verfluchte Schmuckstücke", "eine geheime Zuflucht", "ein stiller, tödlicher Wind"),
-        ("Samurai", "antike Katanas", "ein Kirschblütenhain", "eine ehrenvolle Herausforderung"),
-        ("Dämonenjäger", "verzauberte Waffen", "eine düstere Stadt", "eine nächtliche Jagd"),
-        ("Kobold", "goldene Münzen", "eine versteckte Höhle", "ein trickreicher Streich"),
-        ("Zentaur", "endlose Graslandschaften", "eine wilde Jagd", "ein Stammesritual"),
-        ("Eisdämon", "gefrorene Kristalle", "ein eisiger Palast", "ein Sturm aus Schnee und Frost"),
-        ("Dunkler Ritter", "zerbrochene Rüstungen", "eine verlassene Schlachtfeld", "eine verlorene Ehre"),
-        ("Lichtbringer", "strahlende Relikte", "ein heiliger Tempel", "ein Hoffnungsschimmer"),
-        ("Hexenmeister", "dämonische Grimoire", "ein verfluchter Turm", "ein Pakt mit der Finsternis"),
-        ("Zirkus der Schatten", "verzauberte Masken", "ein wandernder Zirkus", "eine unheimliche Vorstellung"),
-        ("Runenmeister", "leuchtende Runen", "eine verborgene Akademie", "ein verlorenes Wissen"),
-        ("Meereskönig", "versunkene Schätze", "eine mystische Insel", "ein Sturm auf hoher See"),
-        ("Piratenkapitän", "vergrabene Schätze", "ein Piratenschiff", "eine geheimnisvolle Karte"),
-        ("Schlangenpriester", "giftige Relikte", "ein Tempel im Dschungel", "ein tödliches Ritual"),
-        ("Alchemist", "mystische Elixiere", "ein geheimer Laborraum", "eine wundersame Verwandlung")
-    ]
-    
-    theme = random.choice(themes)
-    intro = random.choice(intros)
-    
-    # Addition und Subtraktionsfragen mit den Themen und Intros
-    addition_questions = [
-        f"{intro} {theme[2]}, entdeckt {theme[0]} {num1_words} {theme[1]} verstreut in den alten Ruinen. Während der {theme[0]} sein Fundstück bewundert, erscheinen {num2_words} weitere {theme[1]}, die mit magischem Licht schimmern. Wie viele {theme[1]} hat der {theme[0]} jetzt?",
-        f"{intro} {theme[2]}, {theme[0].capitalize()} entdeckt {num1_words} {theme[1]} verborgen unter dem mystischen Blätterdach. Plötzlich materialisieren sich {num2_words} weitere {theme[1]} aus dem verzauberten Nebel. Wie viele {theme[1]} gibt es insgesamt?",
-        f"{intro} {theme[2]}, mitten in der mystischen Landschaft, stößt {theme[0]} auf {num1_words} {theme[1]} in einem versteckten Hain. Zu seiner Überraschung erscheinen {num2_words} weitere {theme[1]}, die durch die alten Bäume flattern. Wie viele {theme[1]} sind jetzt insgesamt da?",
-        f"{intro} {theme[2]}, beginnt der {theme[0]} seine Suche mit {num1_words} {theme[1]}. Während er weiter erkundet, werden {num2_words} weitere {theme[1]} entdeckt, die in einem geheimen Hain versteckt sind. Wie viele {theme[1]} hat der {theme[0]} insgesamt?",
-        f"{intro} {theme[2]}, im Herzen des verzauberten Reiches, findet der {theme[0]} {num1_words} {theme[1]} verstreut auf den mystischen Böden. Plötzlich erscheinen {num2_words} weitere {theme[1]}, die im Mondlicht tanzen. Wie viele {theme[1]} gibt es jetzt insgesamt?",
-        f"{intro} {theme[2]}, während der {theme[0]} die magische Landschaft durchquert, findet er {num1_words} {theme[1]} unter einem Baldachin von leuchtenden Lichtern. Aus dem Nichts flattern {num2_words} weitere {theme[1]} von den verzauberten Ästen herunter. Wie viele {theme[1]} gibt es jetzt?",
-        f"{intro} {theme[2]}, sammelt der {theme[0]} {num1_words} {theme[1]}, während er den mystischen Wald durchquert. Zu seiner Überraschung erscheinen {num2_words} weitere {theme[1]}, die mit alter Magie schimmern. Wie viele {theme[1]} hat der {theme[0]} jetzt?",
-        f"{intro} {theme[2]}, während ihrer Reise durch die verzauberten Wälder findet {theme[0]} {num1_words} {theme[1]} unter dem alten Laub verborgen. Während sie ihre Entdeckung bestaunen, erscheinen {num2_words} weitere {theme[1]}, die im Mondlicht funkeln. Wie viele {theme[1]} gibt es insgesamt?",
-        f"{intro} {theme[2]}, entdeckt der {theme[0]} {num1_words} {theme[1]} während der Erkundung eines versteckten Tals. Plötzlich erscheinen {num2_words} weitere {theme[1]}, die wie magische Kugeln umherwirbeln. Wie viele {theme[1]} hat der {theme[0]} insgesamt?",
-        # New additional questions
-        f"{intro} {theme[2]}, während seiner Reise durch die alten Berge, entdeckt der {theme[0]} {num1_words} {theme[1]} in einem geheimen Tal. Plötzlich erscheinen {num2_words} weitere {theme[1]} aus dem Nebel. Wie viele {theme[1]} gibt es jetzt?",
-        f"{intro} {theme[2]}, im Dämmerlicht eines mystischen Waldes, findet {theme[0]} {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die im Wind tanzen. Wie viele {theme[1]} gibt es nun?",
-        f"{intro} {theme[2]}, während der {theme[0]} die verzauberten Hügel erklimmt, findet er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} neue {theme[1]}, die mit Glanz durch die Luft fliegen. Wie viele {theme[1]} sind es jetzt?",
-        f"{intro} {theme[2]}, im tiefen Wald, stößt der {theme[0]} auf {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]} mit magischem Glanz. Wie viele {theme[1]} gibt es nun?",
-        f"{intro} {theme[2]}, entdeckt {theme[0]} {num1_words} {theme[1]} an einem verborgenen Ort. Doch plötzlich erscheinen {num2_words} weitere {theme[1]}, die im Morgenlicht glitzern. Wie viele {theme[1]} sind es jetzt?",
-        f"{intro} {theme[2]}, während der {theme[0]} durch ein verzaubertes Tal geht, findet er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die in der Luft schweben. Wie viele {theme[1]} sind es nun?",
-        f"{intro} {theme[2]}, mitten im mystischen Garten, stößt der {theme[0]} auf {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die im sanften Wind fliegen. Wie viele {theme[1]} gibt es jetzt?",
-        f"{intro} {theme[2]}, als der {theme[0]} den alten Tempel erkundet, findet er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die mit goldenen Flügeln schimmern. Wie viele {theme[1]} gibt es nun?",
-        f"{intro} {theme[2]}, entdeckt {theme[0]} {num1_words} {theme[1]} in einer alten Höhle. Doch dann erscheinen {num2_words} weitere {theme[1]}, die mit magischem Licht glänzen. Wie viele {theme[1]} gibt es jetzt?",
-        f"{intro} {theme[2]}, während der {theme[0]} durch das mystische Tal wandert, entdeckt er {num1_words} {theme[1]}. Doch dann erscheinen {num2_words} weitere {theme[1]}, die im Sonnenlicht leuchten. Wie viele {theme[1]} gibt es insgesamt?",
-    ]
-
-    subtraction_questions = [
-        f"{intro} {theme[2]}, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Nach einer plötzlichen Begegnung mit einer mystischen Kraft werden {num2_words} dieser {theme[1]} weggenommen. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, in einem mystischen Land beginnt der {theme[0]} mit {num1_words} {theme[1]}. Nach einer magischen Störung verschwinden {num2_words} {theme[1]} im Äther. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, findet der {theme[0]} {num1_words} {theme[1]} auf seiner Reise. Doch {num2_words} dieser {theme[1]} gehen aufgrund eines unerwarteten Ereignisses verloren. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, während er ein verborgenes Reich erkundet, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Während eines magischen Aufruhrs werden {num2_words} dieser {theme[1]} fortgetragen. Wie viele {theme[1]} hat der {theme[0]} jetzt?",
-        f"{intro} {theme[2]}, hat der {theme[0]} {num1_words} {theme[1]}. Nach einer plötzlichen Störung in den mystischen Energien gehen {num2_words} {theme[1]} verloren. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, beginnt ein {theme[0]} mit {num1_words} {theme[1]}. Doch während eines unvorhergesehenen Ereignisses werden {num2_words} dieser {theme[1]} von einer geheimnisvollen Kraft genommen. Wie viele {theme[1]} bleiben in ihrem Besitz?",
-        f"{intro} {theme[2]}, im Herzen des alten Landes hat der {theme[0]} {num1_words} {theme[1]}. Nach einem magischen Missgeschick verschwinden {num2_words} {theme[1]}. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, begegnet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} gehen durch ein plötzliches magisches Ereignis verloren. Wie viele {theme[1]} bleiben dem {theme[0]}?",
-        f"{intro} {theme[2]}, während er die mystischen Wälder erkundet, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} gehen durch ein magisches Phänomen verloren. Wie viele {theme[1]} behält der {theme[0]}?",
-        # New additional questions
-        f"{intro} {theme[2]}, auf seiner Reise durch ein mystisches Tal, findet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden im Nebel. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, im Land der Geheimnisse, findet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden in der Dunkelheit. Wie viele {theme[1]} bleiben zurück?",
-        f"{intro} {theme[2]}, während {theme[0]} durch die weiten Ebenen wandert, beginnt er mit {num1_words} {theme[1]}. Doch dann verschwinden {num2_words} dieser {theme[1]} in den Wind. Wie viele {theme[1]} sind noch übrig?",
-        f"{intro} {theme[2]}, im verzauberten Dschungel, beginnt der {theme[0]} mit {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden, als ein mystischer Sturm aufzieht. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, als der {theme[0]} den alten Tempel betritt, findet er {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden durch einen magischen Zauber. Wie viele {theme[1]} bleiben zurück?",
-        f"{intro} {theme[2]}, bei der Erkundung einer alten Stadt findet der {theme[0]} {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden, als ein mystischer Lichtstrahl sie erfasst. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, während {theme[0]} einen verborgenen Pfad erkundet, findet er {num1_words} {theme[1]}. Doch dann verschwinden {num2_words} dieser {theme[1]} im Nebel. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, entdeckt {theme[0]} {num1_words} {theme[1]} in einem geheimen Garten. Doch {num2_words} dieser {theme[1]} verschwinden, als ein magischer Wind sie erfasst. Wie viele {theme[1]} bleiben übrig?",
-        f"{intro} {theme[2]}, während der {theme[0]} durch die ewigen Berge wandert, beginnt er mit {num1_words} {theme[1]}. Doch {num2_words} dieser {theme[1]} verschwinden, als ein magischer Sturm aufzieht. Wie viele {theme[1]} bleiben übrig?",
-    ]
-
+    # === Final Question ===
     if operation == '+':
-        question = random.choice(addition_questions)
+        base = random.choice(addition_templates[language])
+        question = f"{base} Wie viele {item} hat er jetzt?" if language == 'de' else f"{base} How many {item} does he have now?"
     else:
-        question = random.choice(subtraction_questions)
-    
+        base = random.choice(subtraction_templates[language])
+        question = f"{base} Wie viele {item} bleiben übrig?" if language == 'de' else f"{base} How many {item} are left?"
+
+    session['captcha_answer'] = answer
+    session['captcha_language'] = language
     return question
 
 ##################    
@@ -397,17 +376,36 @@ def generate_captcha():
 
 @app.route('/captcha')
 def captcha():
-    question = generate_captcha()
-    return render_template('captcha.html', question=question)
+    default_lang = request.accept_languages.best_match(['de', 'en'], default='en')
+    lang = request.args.get('lang') or session.get('captcha_language') or default_lang
+    if lang not in ['de', 'en']:
+        lang = 'en'
+    session['captcha_language'] = lang
+    question = generate_captcha(lang)
+    discord_url = get_discord_invite()
+    return render_template('captcha.html', question=question, discord_url=discord_url, language=lang)
 
 @app.route('/captcha_start')
 def captcha_start():
-    question = generate_captcha()
-    return render_template('captcha_start.html', question=question)
+    default_lang = request.accept_languages.best_match(['de', 'en'], default='en')
+    lang = request.args.get('lang') or session.get('captcha_language') or default_lang
+    if lang not in ['de', 'en']:
+        lang = 'en'
+    session['captcha_language'] = lang
+    question = generate_captcha(lang)
+    discord_url = get_discord_invite()
+    return render_template('captcha_start.html', question=question, discord_url=discord_url, language=lang)
 
 @app.route('/captcha_error')
 def captcha_error():
-    return render_template('captcha_error.html')
+    origin = request.args.get('origin', 'add_time')
+    discord_url = get_discord_invite()
+    return render_template(
+        'captcha_error.html',
+        discord_url=discord_url,
+        retry_target=origin,
+        language=session.get('captcha_language', 'en')
+    )
 
 @app.route('/add_time', methods=['POST'])
 def add_time():
@@ -418,16 +416,15 @@ def add_time():
         status = get_container_status()
         if status == 'running':
             with time_lock:
-                time_remaining += 14400  # 4 hours in seconds
+                time_remaining += 14400
                 save_time_remaining(time_remaining)
                 logger.debug(f"Added 4 hours, new time: {time_remaining}s")
             return redirect(url_for('index'))
         else:
-            # Optional: Handle non-running case (e.g., redirect or error)
             logger.warning("Add time attempted on non-running container")
-            return redirect(url_for('index'))  # Or to an error page
+            return redirect(url_for('index'))
     else:
-        return redirect(url_for('captcha_error'))
+        return redirect(url_for('captcha_error', origin='add_time'))
 
 @csrf.exempt
 @app.route('/trigger_timer', methods=['POST'])
@@ -472,23 +469,37 @@ def check_and_extend_on_players():
             logger.debug("Player check skipped: Container not running")
             return
 
-        # Run rcon-cli "ShowPlayers"
-        result = container.exec_run('rcon-cli "ShowPlayers"')
+        result = container.exec_run(
+            'rcon-cli "ShowPlayers"',
+            stdout=True,
+            stderr=True,
+            demux=False,
+            socket_timeout=5
+        )
+
         if result.exit_code != 0:
-            logger.error(f"ShowPlayers failed: {result.output.decode()}")
+            err = result.output.decode('utf-8', errors='ignore').strip()
+            if 'i/o timeout' in err.lower() or 'timeout' in err.lower():
+                logger.debug("ShowPlayers timed out – assuming no players or busy server")
+                return
+            else:
+                logger.error(f"ShowPlayers failed (exit {result.exit_code}): {err}")
+                return
+
+        output = result.output.decode('utf-8', errors='ignore').strip()
+        if not output:
+            logger.debug("ShowPlayers returned empty output")
             return
 
-        # Parse output: Assume CSV format with header. Count lines >1 for players.
-        output = result.output.decode().strip()
-        player_lines = output.splitlines()
-        num_players = len(player_lines) - 1 if player_lines else 0  # Subtract header
+        player_lines = [line for line in output.splitlines() if line.strip()]
+        num_players = len(player_lines) - 1 if len(player_lines) > 0 and ',' in player_lines[0] else len(player_lines)
 
         if num_players > 0:
             with time_lock:
                 global time_remaining
-                time_remaining += 300  # Add 5 minutes
+                time_remaining += 120
                 save_time_remaining(time_remaining)
-                logger.debug(f"Extended time by 5 min due to {num_players} players connected. New time: {time_remaining}s")
+                logger.debug(f"Extended time by 5 min due to {num_players} players. New time: {time_remaining}s")
         else:
             logger.debug("No players connected; no time extension")
 
@@ -503,7 +514,7 @@ scheduler.add_job(func=broadcast_server_link, trigger=IntervalTrigger(minutes=30
 scheduler.add_job(func=broadcast_pal_link, trigger=IntervalTrigger(minutes=68), id='broadcast_pal_link_job')
 scheduler.add_job(func=trigger_timer_task, trigger=IntervalTrigger(seconds=30), id='timer_job')
 scheduler.add_job(func=refresh_discord_invite, trigger=IntervalTrigger(minutes=30), id='discord_refresh')
-scheduler.add_job(func=check_and_extend_on_players, trigger=IntervalTrigger(seconds=300), id='player_extend_job')
+scheduler.add_job(func=check_and_extend_on_players, trigger=IntervalTrigger(seconds=600), id='player_extend_job')
 scheduler.start()
 
 if __name__ == '__main__':

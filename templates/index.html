@@ -2,7 +2,7 @@
 {% block title %}{{ docker_container_name }} – {{ status|title }}{% endblock %}
 
 {% block content %}
-<!-- Discord Floating Action Button (Top Left) – URL from env -->
+<!-- Discord Floating Action Button -->
 <a href="{{ discord_url }}" target="_blank" class="discord-fab" title="Join our Discord">
     <span class="discord-icon"></span>
     <span class="tooltip">Join Discord</span>
@@ -19,21 +19,23 @@
     <div class="status-block">
         <div class="info-row">
             <span class="label">
-                Remaining Time:
-                <i class="info-icon" title="The server is only paused and can be reactivated here at any time.">Info</i>
+                {% if language == 'de' %}Verbleibende Zeit:{% else %}Remaining Time:{% endif %}
+                <i class="info-icon" title="{% if language == 'de' %}Der Server wird nur pausiert und kann jederzeit hier reaktiviert werden.{% else %}The server is only paused and can be reactivated here at any time.{% endif %}">Info</i>
             </span>
             <span id="remaining-time" class="value"></span>
         </div>
         <div class="info-row">
-            <span class="label">Server IP:</span>
+            <span class="label">{% if language == 'de' %}Server-IP:{% else %}Server IP:{% endif %}</span>
             <span id="server-ip" class="copyable value">80.66.59.216:8211</span>
-            <span id="copy-toast" class="toast">Copied!</span>
+            <span id="copy-toast" class="toast">{% if language == 'de' %}Kopiert!{% else %}Copied!{% endif %}</span>
         </div>
         <div class="actions">
             {% if status == 'running' %}
-                <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+4 Hours</a>
+                <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+4 {% if language == 'de' %}Stunden{% else %}Hours{% endif %}</a>
             {% else %}
-                <a href="{{ url_for('captcha_start') }}" id="start-link" class="btn-primary">Start Server (+4 Hours)</a>
+                <a href="{{ url_for('captcha_start') }}" id="start-link" class="btn-primary">
+                    {% if language == 'de' %}Server starten (+4 Stunden){% else %}Start Server (+4 Hours){% endif %}
+                </a>
             {% endif %}
         </div>
     </div>
@@ -44,6 +46,11 @@
 <script>
     const timeRemaining = {{ time_remaining | tojson }};
     const status = "{{ status }}";
+    const lang = "{{ language or 'en' }}";
+
+    const translations = {
+        timeUp: lang === 'de' ? 'Zeit abgelaufen!' : 'Time is up!'
+    };
 
     function formatTime(sec) {
         const h = Math.floor(sec / 3600).toString().padStart(2, '0');
@@ -60,7 +67,7 @@
                 el.textContent = formatTime(left--);
                 setTimeout(update, 1000);
             } else {
-                el.textContent = "Time is up!";
+                el.textContent = translations.timeUp;
             }
         };
         update();

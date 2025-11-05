@@ -1,6 +1,6 @@
 {# templates/base.html #}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ language or 'en' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,6 +13,12 @@
     <header class="site-header">
         <h1 class="logo">Palworld Server Control</h1>
     </header>
+
+    <!-- Discord Floating Action Button -->
+    <a href="{{ discord_url }}" target="_blank" class="discord-fab" title="Join our Discord">
+        <img src="{{ url_for('static', filename='discord-logo.webp') }}" alt="Discord" class="discord-icon">
+        <span class="tooltip">Join Discord</span>
+    </a>
 
     <main class="page-content">
         {% block content %}{% endblock %}
