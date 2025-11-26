@@ -31,7 +31,7 @@
         </div>
         <div class="actions">
             {% if status == 'running' %}
-                <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+4 {% if language == 'de' %}Stunden{% else %}Hours{% endif %}</a>
+                <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+12 {% if language == 'de' %}Stunden{% else %}Hours{% endif %}</a>
             {% else %}
                 <a href="{{ url_for('captcha_start') }}" id="start-link" class="btn-primary">
                     {% if language == 'de' %}Server starten (+4 Stunden){% else %}Start Server (+4 Hours){% endif %}

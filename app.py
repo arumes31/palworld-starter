@@ -12,212 +12,259 @@ import secrets
 from datetime import datetime
 from flask_wtf.csrf import CSRFProtect
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
+# ==================== CONFIG & LOGGING ====================
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Generate secure key
-app_secret_key = secrets.token_hex(24)
-print("Generated Secret Key:", app_secret_key)
-logger.debug(f"Generated Secret Key: {app_secret_key}")
-
-# Flask app
 app = Flask(__name__)
-app.secret_key = app_secret_key
+app.secret_key = secrets.token_hex(24)
 csrf = CSRFProtect(app)
 
 @app.context_processor
 def inject_now():
-    return {'now': datetime.utcnow}
+    return {'now': datetime.utcnow()}
 
-# Docker client
+# ==================== DOCKER CLIENT ====================
 docker_host = os.getenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
-logger.debug(f"Docker host URL: {docker_host}")
 client = docker.DockerClient(base_url=docker_host)
 
-try:
-    version = client.version()
-    logger.debug(f"Docker version: {version}")
-except docker.errors.DockerException as e:
-    logger.error(f"Docker exception: {e}")
-
-# Container name
 CONTAINER_NAME = os.getenv('DOCKER_CONTAINER_NAME', 'my_container')
-
-# File path for time persistence
 FILE_PATH = '/hostmem/gamecontroller-palworld-time_remaining.json'
-last_status = None
-last_status_update = 0
-broadcasted_last = 0
-time_lock = threading.Lock()
 
-# === DISCORD API CONFIG ===
+# ==================== DISCORD CONFIG ====================
 DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DISCORD_GUILD_ID = os.getenv('DISCORD_GUILD_ID')
 DISCORD_CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
 DISCORD_FALLBACK_URL = os.getenv('DISCORD_FALLBACK_URL', 'https://discord.gg/XXXXXINVITENOTFOUNDXXXXXX')
 
-# Invite cache
 _invite_cache = {'url': None, 'last_update': 0}
-CACHE_TTL = 3600  # 1 hour
+CACHE_TTL = 3600
+
+# ==================== GLOBAL STATE ====================
+time_lock = threading.Lock()
+last_status = None
+last_status_update = 0
 
 def load_time_remaining():
+    """Load saved time. NEVER auto-reset to 900 when 0!"""
     if os.path.exists(FILE_PATH):
-        with open(FILE_PATH, 'r') as file:
-            data = json.load(file)
-            time_remaining = data.get('time_remaining', 900)
-            if time_remaining == 0:
-                time_remaining = 900
-            return time_remaining
-    return 900
+        try:
+            with open(FILE_PATH, 'r') as f:
+                data = json.load(f)
+                remaining = data.get('time_remaining', 900)
+                return max(0, int(remaining))
+        except Exception as e:
+            logger.error(f"Failed to load time file: {e}")
+    return 900  # only on very first start ever
+
+def save_time_remaining(remaining):
+    try:
+        with open(FILE_PATH, 'w') as f:
+            json.dump({'time_remaining': remaining}, f)
+    except Exception as e:
+        logger.error(f"Failed to save time file: {e}")
 
 time_remaining = load_time_remaining()
 
-def save_time_remaining(time_remaining):
-    with open(FILE_PATH, 'w') as file:
-        json.dump({'time_remaining': time_remaining}, file)
-
+# ==================== DISCORD INVITE ====================
 def get_discord_invite():
-    """Generate fresh invite via Discord API with caching. Accepts 200/201."""
-    current_time = time.time()
-    if _invite_cache['url'] and (current_time - _invite_cache['last_update']) < CACHE_TTL:
-        logger.debug("Using cached Discord invite")
+    now = time.time()
+    if _invite_cache['url'] and (now - _invite_cache['last_update']) < CACHE_TTL:
         return _invite_cache['url']
 
     if not all([DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, DISCORD_CHANNEL_ID]):
-        logger.warning("Missing Discord bot config; using fallback")
         return DISCORD_FALLBACK_URL
 
     try:
-        headers = {
-            'Authorization': f'Bot {DISCORD_BOT_TOKEN}',
-            'Content-Type': 'application/json'
-        }
-        payload = {
-            'max_age': 86400,
-            'max_uses': 0,
-            'temporary': False,
-            'unique': True
-        }
-        response = requests.post(
+        headers = {'Authorization': f'Bot {DISCORD_BOT_TOKEN}', 'Content-Type': 'application/json'}
+        payload = {'max_age': 86400, 'max_uses': 0, 'temporary': False, 'unique': True}
+        r = requests.post(
             f'https://discord.com/api/v10/channels/{DISCORD_CHANNEL_ID}/invites',
-            headers=headers,
-            json=payload,
-            timeout=10
+            headers=headers, json=payload, timeout=10
         )
-
-        if response.status_code in (200, 201):
-            invite_data = response.json()
-            invite_code = invite_data.get('code')
-            if invite_code:
-                new_url = f'https://discord.gg/{invite_code}'
-                _invite_cache['url'] = new_url
-                _invite_cache['last_update'] = current_time
-                logger.info(f"Generated/refreshed Discord invite: {new_url}")
-                return new_url
-            else:
-                logger.warning("Discord API response missing 'code' field")
-        else:
-            logger.error(f"Discord API error {response.status_code}: {response.text}")
-
+        if r.status_code in (200, 201):
+            code = r.json().get('code')
+            if code:
+                url = f'https://discord.gg/{code}'
+                _invite_cache.update({'url': url, 'last_update': now})
+                return url
     except Exception as e:
-        logger.error(f"Failed to generate Discord invite: {e}")
+        logger.error(f"Discord invite failed: {e}")
 
     return DISCORD_FALLBACK_URL
 
-@app.route('/stop', methods=['POST'])
-def stop_container():
-    if request.remote_addr not in ['127.0.0.1', '::1']:
-        logger.warning(f"Unauthorized stop from {request.remote_addr}")
-        abort(403)
-
-    global time_remaining, broadcasted_last
-    with time_lock:
-        try:
-            container = client.containers.get(CONTAINER_NAME)
-            if container.status == 'running':
-                logger.debug(f"Running backup in '{CONTAINER_NAME}'")
-                result = container.exec_run('backup')
-                if result.exit_code != 0:
-                    logger.error(f"Backup failed: {result.output.decode()}")
-                container.stop()
-                logger.debug(f"Container '{CONTAINER_NAME}' stopped")
-        except docker.errors.NotFound:
-            logger.error("Container not found")
-        except Exception as e:
-            logger.error(f"Stop error: {e}")
-        finally:
-            time_remaining = 0
-            broadcasted_last = 0
-            save_time_remaining(time_remaining)
-
-    return "OK"
-
+# ==================== SERVER STATE HELPERS ====================
 def get_container_status():
     global last_status, last_status_update
     now = time.time()
-    if now - last_status_update >= 30:
+    if now - last_status_update > 30:
         try:
             container = client.containers.get(CONTAINER_NAME)
             last_status = container.status
             last_status_update = now
         except docker.errors.NotFound:
+            last_status = "exited"
+        except Exception as e:
+            logger.error(f"Status check error: {e}")
             last_status = "unknown"
     return last_status
 
+def is_server_paused():
+    """Detect if Palworld is in AUTO PAUSE state (very reliable with itzg image)"""
+    try:
+        container = client.containers.get(CONTAINER_NAME)
+        logs = container.logs(tail=40).decode('utf-8', errors='ignore')
+        lines = [line.strip() for line in logs.splitlines() if line.strip()]
+        paused = False
+        for line in reversed(lines):
+            if '[AUTO PAUSE] Paused' in line:
+                paused = True
+            elif any(x in line for x in ['Wakeup!!!', 'Resumed by', 'Player connected', 'Player disconnected']):
+                return False  # was paused but woke up
+        return paused
+    except:
+        return False
+
+def get_player_count():
+    """Use REST API instead of RCON → doesn't wake paused server"""
+    try:
+        r = requests.get('http://localhost:8212/v1/api/players', timeout=4)
+        if r.status_code == 200:
+            return len(r.json().get('players', []))
+    except:
+        pass
+    return 0
+
+# ==================== ROUTES ====================
 @app.route('/')
 def index():
-    global time_remaining
     status = get_container_status()
-    docker_container_name = os.getenv('DOCKER_CONTAINER_NAME', 'DefaultContainerName')
     discord_url = get_discord_invite()
-
-    logger.debug(f"Index: {docker_container_name}, {status}, {time_remaining}s, Discord: {discord_url}")
-    response = make_response(render_template(
+    return render_template(
         'index.html',
-        docker_container_name=docker_container_name,
+        docker_container_name=os.getenv('DOCKER_CONTAINER_NAME', 'Palworld Server'),
         status=status,
         time_remaining=time_remaining,
         discord_url=discord_url
-    ))
-    response.headers['Cache-Control'] = 'no-store'
-    return response
+    )
+
+@app.route('/stop', methods=['POST'])
+def stop_container():
+    if request.remote_addr not in ['127.0.0.1', '::1']:
+        abort(403)
+
+    global time_remaining
+    with time_lock:
+        try:
+            container = client.containers.get(CONTAINER_NAME)
+            if container.status == 'running':
+                container.exec_run('backup', detach=False)
+                container.stop()
+                logger.info("Container stopped due to time expiry or manual stop")
+        except Exception as e:
+            logger.error(f"Stop failed: {e}")
+        finally:
+            time_remaining = 0
+            save_time_remaining(0)
+
+    return "OK"
 
 @app.route('/start', methods=['POST'])
 def start_container():
-    global time_remaining, broadcasted_last
-    captcha_answer = request.form.get('captcha_answer')
-    
-    if captcha_answer and int(captcha_answer) == session.get('captcha_answer'):
-        with time_lock:
-            try:
-                container = client.containers.get(CONTAINER_NAME)
-                if container.status != 'running':
-                    container.start()
-                    logger.debug(f"Container '{CONTAINER_NAME}' started")
-                    time_remaining = max(time_remaining, 900)
-                    time_remaining += 14400
-                    save_time_remaining(time_remaining)
-                    broadcasted_last = time.time()
-            except docker.errors.NotFound:
-                logger.error("Container not found")
-            except Exception as e:
-                logger.error(f"Start error: {e}")
-        return redirect(url_for('index'))
-    else:
+    global time_remaining
+    if not request.form.get('captcha_answer') or int(request.form.get('captcha_answer')) != session.get('captcha_answer'):
         return redirect(url_for('captcha_error', origin='start_container'))
 
+    with time_lock:
+        try:
+            container = client.containers.get(CONTAINER_NAME)
+            if container.status != 'running':
+                container.start()
+                time_remaining = max(time_remaining, 900) + 14400  # 15 min grace + 4 hours
+                save_time_remaining(time_remaining)
+                logger.info("Server started + 4 hours added")
+        except Exception as e:
+            logger.error(f"Start failed: {e}")
+
+    return redirect(url_for('index'))
+
+@app.route('/add_time', methods=['POST'])
+def add_time():
+    global time_remaining
+    if not request.form.get('captcha_answer') or int(request.form.get('captcha_answer')) != session.get('captcha_answer'):
+        return redirect(url_for('captcha_error', origin='add_time'))
+
+    if get_container_status() == 'running':
+        with time_lock:
+            time_remaining += 43200
+            save_time_remaining(time_remaining)
+            logger.info(f"+12 hours added, now {time_remaining//3600}h")
+        return redirect(url_for('index'))
+
+    return redirect(url_for('index'))
+
+# ==================== TIMER & AUTO-EXTEND ====================
 def update_timer():
     global time_remaining
     with time_lock:
         if time_remaining > 0:
             time_remaining -= 30
-            if time_remaining < 0:
+            if time_remaining <= 0:
                 time_remaining = 0
-            save_time_remaining(time_remaining)
-            if time_remaining == 0:
-                stop_container()
-    return "OK"
+                save_time_remaining(0)
+                if get_container_status() == 'running':
+                    logger.info("TIME EXPIRED → stopping container")
+                    requests.post('http://localhost:5000/stop', timeout=5)
+        save_time_remaining(time_remaining)
+
+def extend_if_players():
+    if is_server_paused() or get_container_status() != 'running':
+        return
+
+    count = get_player_count()
+    if count > 0:
+        with time_lock:
+            global time_remaining
+            was = time_remaining
+            time_remaining += 300  # +5 minutes per player seen
+            time_remaining = min(time_remaining, 172800)  # max 48h
+            if time_remaining != was:
+                save_time_remaining(time_remaining)
+                logger.info(f"Players online ({count}) → +5 min (now {time_remaining//3600}h)")
+
+def safe_broadcast(message):
+    if is_server_paused() or get_container_status() != 'running':
+        logger.debug("Broadcast skipped – server paused or not running")
+        return
+    try:
+        container = client.containers.get(CONTAINER_NAME)
+        result = container.exec_run(f'rcon-cli "Broadcast {message}"')
+        if result.exit_code != 0:
+            logger.warning(f"RCON broadcast failed: {result.output.decode()}")
+    except Exception as e:
+        logger.debug(f"RCON unavailable: {e}")
+        
+##Backup
+def auto_backup_if_running_and_not_paused():
+    """Runs every 15 minutes – backs up only if container is running AND game is not paused"""
+    if get_container_status() != 'running':
+        logger.debug("Backup skipped: container not running")
+        return
+
+    if is_server_paused():
+        logger.debug("Backup skipped: server is auto-paused (no players)")
+        return
+
+    try:
+        container = client.containers.get(CONTAINER_NAME)
+        logger.info("Running scheduled backup...")
+        result = container.exec_run('backup', detach=False)
+        if result.exit_code == 0:
+            logger.info("Backup completed successfully")
+        else:
+            logger.warning(f"Backup failed: {result.output.decode('utf-8', errors='ignore').strip()}")
+    except Exception as e:
+        logger.error(f"Backup error: {e}")
 
 # ==================
 # CAPTCHA FUNCTIONS
@@ -241,16 +288,27 @@ def generate_captcha(language='en'):
             'de': ['', '', 'zwanzig', 'dreißig', 'vierzig', 'fünfzig', 'sechzig', 'siebzig', 'achtzig', 'neunzig'],
             'en': ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
         }
+
         if n < 20:
             return ones[lang][n]
+
         elif n < 100:
             ten, one = divmod(n, 10)
-            connector = 'und' if one and lang == 'de' else '-' if one and lang == 'en' else ''
-            return f"{tens[lang][ten]}{connector}{ones[lang][one] if one else ''}".strip()
+            if one == 0:
+                return tens[lang][ten]
+            else:
+                if lang == 'de':
+                    return f"{ones[lang][one]}und{tens[lang][ten]}"
+                else:
+                    return f"{tens[lang][ten]}-{ones[lang][one]}"
+
         else:
             h, r = divmod(n, 100)
-            h_str = 'einhundert' if h == 1 and lang == 'de' else ones[lang][h] + ('hundert' if lang == 'de' else 'hundred')
-            return f"{h_str}{number_to_words(r, lang) if r else ''}"
+            if lang == 'de':
+                hundred = 'einhundert' if h == 1 else f"{ones[lang][h]}hundert"
+            else:
+                hundred = 'one hundred' if h == 1 else f"{ones[lang][h]} hundred"
+            return hundred + (number_to_words(r, lang) if r else '')
 
     num1_words = number_to_words(num1, language)
     num2_words = number_to_words(num2, language)
@@ -407,115 +465,46 @@ def captcha_error():
         language=session.get('captcha_language', 'en')
     )
 
-@app.route('/add_time', methods=['POST'])
-def add_time():
-    global time_remaining
-    captcha_answer = request.form.get('captcha_answer')
-    
-    if captcha_answer and int(captcha_answer) == session.get('captcha_answer'):
-        status = get_container_status()
-        if status == 'running':
-            with time_lock:
-                time_remaining += 14400
-                save_time_remaining(time_remaining)
-                logger.debug(f"Added 4 hours, new time: {time_remaining}s")
-            return redirect(url_for('index'))
-        else:
-            logger.warning("Add time attempted on non-running container")
-            return redirect(url_for('index'))
-    else:
-        return redirect(url_for('captcha_error', origin='add_time'))
-
-@csrf.exempt
-@app.route('/trigger_timer', methods=['POST'])
-def trigger_timer():
-    return update_timer()
-
 def trigger_timer_task():
     try:
         requests.post('http://localhost:5000/trigger_timer', timeout=5)
     except:
         pass
-
-def broadcast_server_link():
-    message = "to start this server visit https://pal.wowcraft.pw/"
-    try:
-        container = client.containers.get(CONTAINER_NAME)
-        if container.status == 'running':
-            result = container.exec_run(f'rcon-cli "Broadcast {message}"')
-            if result.exit_code != 0:
-                logger.error(f"Broadcast failed: {result.output.decode()}")
-    except:
-        pass
         
-def broadcast_pal_link():
-    message = "https://pal.wowcraft.pw"
-    try:
-        container = client.containers.get(CONTAINER_NAME)
-        if container.status == 'running':
-            result = container.exec_run(f'rcon-cli "Broadcast {message}"')
-            if result.exit_code != 0:
-                logger.error(f"Pal-link broadcast failed: {result.output.decode()}")
-    except Exception as e:
-        logger.debug(f"Pal-link broadcast skipped: {e}")
-
 def refresh_discord_invite():
     get_discord_invite()
     
-def check_and_extend_on_players():
+def broadcast_start_message():
+    safe_broadcast("to start this server visit https://pal.wowcraft.pw/")
+
+def broadcast_server_url():
+    safe_broadcast("https://pal.wowcraft.pw")
+
+def trigger_timer_task():
     try:
-        container = client.containers.get(CONTAINER_NAME)
-        if container.status != 'running':
-            logger.debug("Player check skipped: Container not running")
-            return
-
-        result = container.exec_run(
-            'rcon-cli "ShowPlayers"',
-            stdout=True,
-            stderr=True,
-            demux=False,
-            socket_timeout=5
-        )
-
-        if result.exit_code != 0:
-            err = result.output.decode('utf-8', errors='ignore').strip()
-            if 'i/o timeout' in err.lower() or 'timeout' in err.lower():
-                logger.debug("ShowPlayers timed out – assuming no players or busy server")
-                return
-            else:
-                logger.error(f"ShowPlayers failed (exit {result.exit_code}): {err}")
-                return
-
-        output = result.output.decode('utf-8', errors='ignore').strip()
-        if not output:
-            logger.debug("ShowPlayers returned empty output")
-            return
-
-        player_lines = [line for line in output.splitlines() if line.strip()]
-        num_players = len(player_lines) - 1 if len(player_lines) > 0 and ',' in player_lines[0] else len(player_lines)
-
-        if num_players > 0:
-            with time_lock:
-                global time_remaining
-                time_remaining += 120
-                save_time_remaining(time_remaining)
-                logger.debug(f"Extended time by 5 min due to {num_players} players. New time: {time_remaining}s")
-        else:
-            logger.debug("No players connected; no time extension")
-
-    except docker.errors.NotFound:
-        logger.error("Player check skipped: Container not found")
+        requests.post('http://localhost:5000/trigger_timer', timeout=5)
     except Exception as e:
-        logger.error(f"Player check error: {e}")
+        logger.debug(f"Timer trigger failed (normal when container stopped): {e}")
 
-# === SCHEDULER ===
+# ==================== SCHEDULER JOBS ====================
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=broadcast_server_link, trigger=IntervalTrigger(minutes=30), id='broadcast_job')
-scheduler.add_job(func=broadcast_pal_link, trigger=IntervalTrigger(minutes=68), id='broadcast_pal_link_job')
-scheduler.add_job(func=trigger_timer_task, trigger=IntervalTrigger(seconds=30), id='timer_job')
-scheduler.add_job(func=refresh_discord_invite, trigger=IntervalTrigger(minutes=30), id='discord_refresh')
-scheduler.add_job(func=check_and_extend_on_players, trigger=IntervalTrigger(seconds=600), id='player_extend_job')
+
+scheduler.add_job(func=broadcast_start_message, trigger=IntervalTrigger(minutes=30),  id='broadcast_link')
+scheduler.add_job(func=broadcast_server_url, trigger=IntervalTrigger(minutes=68),  id='broadcast_url')
+scheduler.add_job(func=trigger_timer_task, trigger=IntervalTrigger(seconds=30),  id='timer')
+scheduler.add_job(func=get_discord_invite, trigger=IntervalTrigger(minutes=30), id='discord_refresh')
+scheduler.add_job(func=extend_if_players, trigger=IntervalTrigger(seconds=300), id='player_extend')
+scheduler.add_job(func=auto_backup_if_running_and_not_paused, trigger=IntervalTrigger(minutes=15), name='auto_backup', max_instances=1, coalesce=True)
+
 scheduler.start()
 
+@csrf.exempt
+@app.route('/trigger_timer', methods=['POST'])
+def trigger_timer():
+    update_timer()
+    return "OK"
+
+# ==================== RUN ====================
 if __name__ == '__main__':
+    logger.info("Palworld Free Server Controller started")
     app.run(host='0.0.0.0', port=5000, debug=True)
