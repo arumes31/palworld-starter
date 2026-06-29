@@ -1,16 +1,9 @@
 linters:
-  disable-all: true
-  enable:
-    - govet
+  default: all
+  disable:
+    - gosec
     - errcheck
     - staticcheck
-    - unused
-    - gosec
-    - gosimple
-    - ineffassign
-    - typecheck
-    - gofmt
-    - misspell
 
 issues:
   exclude-rules:
