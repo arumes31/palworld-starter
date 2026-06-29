@@ -380,3 +380,11 @@ body { min-height: 100vh; display: flex; flex-direction: column; color: #e0f2ff;
     border-color: #63b3ed;
     box-shadow: 0 0 0 3px rgba(99, 179, 237, 0.3);
 }
+
+/* Captcha Question Copy Prevention */
+.question {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}

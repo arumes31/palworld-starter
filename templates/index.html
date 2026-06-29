@@ -1,52 +1,45 @@
-{% extends "base.html" %}
-{% block title %}{{ docker_container_name }} – {{ status|title }}{% endblock %}
+{{ define "title" }}{{ .DockerContainerName }} – {{ title .Status }}{{ end }}
 
-{% block content %}
-<!-- Discord Floating Action Button -->
-<a href="{{ discord_url }}" target="_blank" class="discord-fab" title="Join our Discord">
-    <span class="discord-icon"></span>
-    <span class="tooltip">Join Discord</span>
-</a>
-
+{{ define "content" }}
 <div class="glass-card">
     <div class="status-header">
         <h2 class="status-title">
-            {{ docker_container_name }}
-            <span class="status-badge {{ status }}">{{ status|title }}</span>
+            {{ .DockerContainerName }}
+            <span class="status-badge {{ .Status }}">{{ title .Status }}</span>
         </h2>
     </div>
 
     <div class="status-block">
         <div class="info-row">
             <span class="label">
-                {% if language == 'de' %}Verbleibende Zeit:{% else %}Remaining Time:{% endif %}
-                <i class="info-icon" title="{% if language == 'de' %}Der Server wird nur pausiert und kann jederzeit hier reaktiviert werden.{% else %}The server is only paused and can be reactivated here at any time.{% endif %}">Info</i>
+                {{ if eq .Language "de" }}Verbleibende Zeit:{{ else }}Remaining Time:{{ end }}
+                <i class="info-icon" title="{{ if eq .Language "de" }}Der Server wird nur pausiert und kann jederzeit hier reaktiviert werden.{{ else }}The server is only paused and can be reactivated here at any time.{{ end }}">Info</i>
             </span>
             <span id="remaining-time" class="value"></span>
         </div>
         <div class="info-row">
-            <span class="label">{% if language == 'de' %}Server-IP:{% else %}Server IP:{% endif %}</span>
+            <span class="label">{{ if eq .Language "de" }}Server-IP:{{ else }}Server IP:{{ end }}</span>
             <span id="server-ip" class="copyable value">80.66.59.216:8211</span>
-            <span id="copy-toast" class="toast">{% if language == 'de' %}Kopiert!{% else %}Copied!{% endif %}</span>
+            <span id="copy-toast" class="toast">{{ if eq .Language "de" }}Kopiert!{{ else }}Copied!{{ end }}</span>
         </div>
         <div class="actions">
-            {% if status == 'running' %}
-                <a href="{{ url_for('captcha') }}" id="add-time-link" class="btn-primary">+12 {% if language == 'de' %}Stunden{% else %}Hours{% endif %}</a>
-            {% else %}
-                <a href="{{ url_for('captcha_start') }}" id="start-link" class="btn-primary">
-                    {% if language == 'de' %}Server starten (+4 Stunden){% else %}Start Server (+4 Hours){% endif %}
+            {{ if eq .Status "running" }}
+                <a href="/captcha" id="add-time-link" class="btn-primary">+12 {{ if eq .Language "de" }}Stunden{{ else }}Hours{{ end }}</a>
+            {{ else }}
+                <a href="/captcha_start" id="start-link" class="btn-primary">
+                    {{ if eq .Language "de" }}Server starten (+4 Stunden){{ else }}Start Server (+4 Hours){{ end }}
                 </a>
-            {% endif %}
+            {{ end }}
         </div>
     </div>
 </div>
-{% endblock %}
+{{ end }}
 
-{% block scripts %}
+{{ define "scripts" }}
 <script>
-    const timeRemaining = {{ time_remaining | tojson }};
-    const status = "{{ status }}";
-    const lang = "{{ language or 'en' }}";
+    const timeRemaining = {{ tojson .TimeRemaining }};
+    const status = "{{ .Status }}";
+    const lang = "{{ .Language }}";
 
     const translations = {
         timeUp: lang === 'de' ? 'Zeit abgelaufen!' : 'Time is up!'
@@ -92,4 +85,4 @@
     document.getElementById('server-ip')?.addEventListener('click', copyIP);
     initUI();
 </script>
-{% endblock %}
+{{ end }}

@@ -1,1 +1,4 @@
 autobuild.sh
+palworld-starter
+*.exe
+*.test

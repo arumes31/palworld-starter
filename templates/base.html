@@ -1,13 +1,12 @@
-{# templates/base.html #}
 <!DOCTYPE html>
-<html lang="{{ language or 'en' }}">
+<html lang="{{ .Language }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Palworld Server Control{% endblock %}</title>
-    <link rel="icon" href="{{ url_for('static', filename='5.ico') }}" type="image/x-icon">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    {% block head %}{% endblock %}
+    <title>{{ block "title" . }}Palworld Server Control{{ end }}</title>
+    <link rel="icon" href="/static/5.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/static/style.css">
+    {{ block "head" . }}{{ end }}
 </head>
 <body class="full-bg">
     <header class="site-header">
@@ -15,15 +14,15 @@
     </header>
 
     <!-- Discord Floating Action Button -->
-    <a href="{{ discord_url }}" target="_blank" class="discord-fab" title="Join our Discord">
-        <img src="{{ url_for('static', filename='discord-logo.webp') }}" alt="Discord" class="discord-icon">
+    <a href="{{ .DiscordUrl }}" target="_blank" class="discord-fab" title="Join our Discord">
+        <img src="/static/discord-logo.webp" alt="Discord" class="discord-icon">
         <span class="tooltip">Join Discord</span>
     </a>
 
     <main class="page-content">
-        {% block content %}{% endblock %}
+        {{ block "content" . }}{{ end }}
     </main>
 
-    {% block scripts %}{% endblock %}
+    {{ block "scripts" . }}{{ end }}
 </body>
 </html>
