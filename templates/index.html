@@ -1,12 +1,6 @@
 {{ define "title" }}{{ .DockerContainerName }} – {{ title .Status }}{{ end }}
 
 {{ define "content" }}
-<!-- Discord Floating Action Button -->
-<a href="{{ .DiscordUrl }}" target="_blank" class="discord-fab" title="Join our Discord">
-    <span class="discord-icon"></span>
-    <span class="tooltip">Join Discord</span>
-</a>
-
 <div class="glass-card">
     <div class="status-header">
         <h2 class="status-title">

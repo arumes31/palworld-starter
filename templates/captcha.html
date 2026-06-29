@@ -1,11 +1,6 @@
-{{ define "title" }}{{ if eq .Language "de" }}4 Stunden hinzufügen – Puzzle lösen{{ else }}Add 4 Hours – Solve Puzzle{{ end }}{{ end }}
+{{ define "title" }}{{ if eq .Language "de" }}12 Stunden hinzufügen – Puzzle lösen{{ else }}Add 12 Hours – Solve Puzzle{{ end }}{{ end }}
 
 {{ define "content" }}
-<a href="{{ .DiscordUrl }}" target="_blank" class="discord-fab" title="Join our Discord">
-    <span class="discord-icon"></span>
-    <span class="tooltip">Join Discord</span>
-</a>
-
 <div class="glass-card">
     <div class="language-selector" style="margin-bottom: 1rem; text-align: right;">
         <label for="language">{{ if eq .Language "de" }}Sprache:{{ else }}Language:{{ end }}</label>
@@ -16,7 +11,7 @@
     </div>
 
     <h2 class="form-title">{{ if eq .Language "de" }}Verifizierung erforderlich{{ else }}Verification Required{{ end }}</h2>
-    <p class="form-subtitle">{{ if eq .Language "de" }}Löse das Rätsel, um 4 Stunden hinzuzufügen.{{ else }}Solve the puzzle to add 4 hours.{{ end }}</p>
+    <p class="form-subtitle">{{ if eq .Language "de" }}Löse das Rätsel, um 12 Stunden hinzuzufügen.{{ else }}Solve the puzzle to add 12 hours.{{ end }}</p>
     <br>
     <form action="/add_time" method="POST" class="captcha-form">
         <input type="hidden" name="csrf_token" value="{{ .CsrfToken }}">

@@ -14,7 +14,8 @@ COPY main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter main.go
 
 # Final stage
-FROM alpine:3.19
+FROM alpine:3.21
+
 
 # Install ca-certificates for external Discord API calls
 RUN apk --no-cache add ca-certificates

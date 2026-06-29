@@ -1,11 +1,6 @@
 {{ define "title" }}{{ if eq .Language "de" }}Server starten – Puzzle lösen{{ else }}Start Server – Solve Puzzle{{ end }}{{ end }}
 
 {{ define "content" }}
-<a href="{{ .DiscordUrl }}" target="_blank" class="discord-fab" title="Join our Discord">
-    <span class="discord-icon"></span>
-    <span class="tooltip">Join Discord</span>
-</a>
-
 <div class="glass-card">
     <div class="language-selector" style="margin-bottom: 1rem; text-align: right;">
         <label for="language">{{ if eq .Language "de" }}Sprache:{{ else }}Language:{{ end }}</label>

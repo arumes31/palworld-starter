@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -66,11 +66,18 @@ func (s *State) GetTimeRemaining() int {
 	return s.timeRemaining
 }
 
-func (s *State) SetTimeRemaining(val int) {
+func (s *State) UpdateTimeRemaining(mutateFn func(int) int) int {
 	s.mu.Lock()
-	s.timeRemaining = val
-	s.mu.Unlock()
-	saveTimeRemaining(val)
+	defer s.mu.Unlock()
+	s.timeRemaining = mutateFn(s.timeRemaining)
+	saveTimeRemaining(s.timeRemaining)
+	return s.timeRemaining
+}
+
+func (s *State) SetTimeRemaining(val int) {
+	s.UpdateTimeRemaining(func(_ int) int {
+		return val
+	})
 }
 
 func initDocker() {
@@ -132,13 +139,7 @@ func getSession(r *http.Request) *SessionData {
 		return &SessionData{Language: getPreferredLanguage(r)}
 	}
 
-	val, ok := unsignValue(cookie.Value)
-	if !ok {
-		return &SessionData{Language: getPreferredLanguage(r)}
-	}
-
-	// Base64 decode to get JSON
-	decoded, err := base64.RawURLEncoding.DecodeString(val)
+	decoded, err := decryptSession(cookie.Value)
 	if err != nil {
 		return &SessionData{Language: getPreferredLanguage(r)}
 	}
@@ -155,40 +156,56 @@ func saveSession(w http.ResponseWriter, data *SessionData) {
 	if err != nil {
 		return
 	}
-	// Base64 encode JSON to make it safe for cookie value
-	b64Val := base64.RawURLEncoding.EncodeToString(bytes)
-	signed := signValue(b64Val)
+	encrypted, err := encryptSession(bytes)
+	if err != nil {
+		log.Printf("Session encryption failed: %v", err)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
-		Value:    signed,
+		Value:    encrypted,
 		Path:     "/",
 		HttpOnly: true,
 	})
 }
 
-func signValue(value string) string {
-	h := hmac.New(sha256.New, sessionKey)
-	h.Write([]byte(value))
-	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-	return value + "." + sig
+func encryptSession(plaintext []byte) (string, error) {
+	block, err := aes.NewCipher(sessionKey)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	return base64.RawURLEncoding.EncodeToString(ciphertext), nil
 }
 
-func unsignValue(signedValue string) (string, bool) {
-	parts := strings.Split(signedValue, ".")
-	if len(parts) != 2 {
-		return "", false
+func decryptSession(ciphertextStr string) ([]byte, error) {
+	ciphertext, err := base64.RawURLEncoding.DecodeString(ciphertextStr)
+	if err != nil {
+		return nil, err
 	}
-	value := parts[0]
-	sig := parts[1]
-
-	h := hmac.New(sha256.New, sessionKey)
-	h.Write([]byte(value))
-	expectedSig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
-
-	if hmac.Equal([]byte(sig), []byte(expectedSig)) {
-		return value, true
+	block, err := aes.NewCipher(sessionKey)
+	if err != nil {
+		return nil, err
 	}
-	return "", false
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+	nonce := ciphertext[:nonceSize]
+	actualCiphertext := ciphertext[nonceSize:]
+	return gcm.Open(nil, nonce, actualCiphertext, nil)
 }
 
 func getPreferredLanguage(r *http.Request) string {
@@ -470,6 +487,13 @@ func getCachedContainerStatus(containerName string) string {
 	return status
 }
 
+func invalidateStatusCache() {
+	statusCacheMu.Lock()
+	defer statusCacheMu.Unlock()
+	statusCacheStatus = ""
+	statusCacheTime = time.Time{}
+}
+
 func isServerPaused(containerName string) bool {
 	if dockerCli == nil {
 		return false
@@ -618,7 +642,11 @@ func startContainer(containerName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	return dockerCli.ContainerStart(ctx, containerName, types.ContainerStartOptions{})
+	err := dockerCli.ContainerStart(ctx, containerName, types.ContainerStartOptions{})
+	if err == nil {
+		invalidateStatusCache()
+	}
+	return err
 }
 
 func stopContainer(containerName string) error {
@@ -637,7 +665,11 @@ func stopContainer(containerName string) error {
 		stopOpts := container.StopOptions{
 			Timeout: &timeout,
 		}
-		return dockerCli.ContainerStop(ctx, containerName, stopOpts)
+		err := dockerCli.ContainerStop(ctx, containerName, stopOpts)
+		if err == nil {
+			invalidateStatusCache()
+		}
+		return err
 	}
 	return nil
 }
@@ -873,24 +905,22 @@ func handleStart(containerName string) http.HandlerFunc {
 		sessionData.CaptchaAnswer = -9999
 		saveSession(w, sessionData)
 
-		globalState.mu.Lock()
 		// Start container if not running
 		status := getContainerStatus(containerName)
 		if status != "running" {
 			if err := startContainer(containerName); err != nil {
 				log.Printf("Failed to start container: %v", err)
 			} else {
-				// add 15 min grace (900s) + 4 hours (14400s)
-				if globalState.timeRemaining < 900 {
-					globalState.timeRemaining = 900
-				}
-				globalState.timeRemaining += 14400
+				globalState.UpdateTimeRemaining(func(current int) int {
+					val := current
+					if val < 900 {
+						val = 900
+					}
+					return val + 14400
+				})
 				log.Println("Server started + 4 hours added")
 			}
 		}
-		remaining := globalState.timeRemaining
-		globalState.mu.Unlock()
-		saveTimeRemaining(remaining)
 
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
@@ -921,13 +951,11 @@ func handleAddTime(containerName string) http.HandlerFunc {
 		sessionData.CaptchaAnswer = -9999
 		saveSession(w, sessionData)
 
-		status := getCachedContainerStatus(containerName)
+		status := getContainerStatus(containerName)
 		if status == "running" {
-			globalState.mu.Lock()
-			globalState.timeRemaining += 43200 // +12 hours
-			remaining := globalState.timeRemaining
-			globalState.mu.Unlock()
-			saveTimeRemaining(remaining)
+			remaining := globalState.UpdateTimeRemaining(func(current int) int {
+				return current + 43200
+			})
 			log.Printf("+12 hours added, now %dh", remaining/3600)
 		}
 
@@ -952,9 +980,6 @@ func handleStop(containerName string) http.HandlerFunc {
 			return
 		}
 
-		globalState.mu.Lock()
-		defer globalState.mu.Unlock()
-
 		status := getContainerStatus(containerName)
 		if status == "running" {
 			if err := stopContainer(containerName); err != nil {
@@ -963,8 +988,9 @@ func handleStop(containerName string) http.HandlerFunc {
 				log.Println("Container stopped due to time expiry or manual stop")
 			}
 		}
-		globalState.timeRemaining = 0
-		saveTimeRemaining(0)
+		globalState.UpdateTimeRemaining(func(_ int) int {
+			return 0
+		})
 
 		w.Write([]byte("OK"))
 	}
@@ -976,29 +1002,29 @@ func startTimerTicker(containerName string) {
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		for range ticker.C {
-			globalState.mu.Lock()
-			val := globalState.timeRemaining
-			if val > 0 {
-				val -= 30
-				if val < 0 {
-					val = 0
+			var expired bool
+			globalState.UpdateTimeRemaining(func(current int) int {
+				if current > 0 {
+					val := current - 30
+					if val < 0 {
+						val = 0
+					}
+					if val == 0 {
+						expired = true
+					}
+					return val
 				}
-				globalState.timeRemaining = val
-				globalState.mu.Unlock()
-				saveTimeRemaining(val)
+				return 0
+			})
 
-				if val == 0 {
-					status := getCachedContainerStatus(containerName)
-					if status == "running" {
-						log.Println("TIME EXPIRED → stopping container")
-						if err := stopContainer(containerName); err != nil {
-							log.Printf("Timer container shutdown failed: %v", err)
-						}
+			if expired {
+				status := getCachedContainerStatus(containerName)
+				if status == "running" {
+					log.Println("TIME EXPIRED → stopping container")
+					if err := stopContainer(containerName); err != nil {
+						log.Printf("Timer container shutdown failed: %v", err)
 					}
 				}
-			} else {
-				globalState.mu.Unlock()
-				saveTimeRemaining(0)
 			}
 		}
 	}()
@@ -1013,15 +1039,13 @@ func startPlayerExtendTicker(containerName string) {
 			}
 			count := getPlayerCount()
 			if count > 0 {
-				globalState.mu.Lock()
-				val := globalState.timeRemaining
-				val += 300 // +5 minutes
-				if val > 172800 { // max 48h
-					val = 172800
-				}
-				globalState.timeRemaining = val
-				globalState.mu.Unlock()
-				saveTimeRemaining(val)
+				val := globalState.UpdateTimeRemaining(func(current int) int {
+					newVal := current + 300
+					if newVal > 172800 { // max 48h
+						return 172800
+					}
+					return newVal
+				})
 				log.Printf("Players online (%d) → +5 min (now %dh)", count, val/3600)
 			}
 		}

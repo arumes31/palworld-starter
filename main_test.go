@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -69,29 +68,33 @@ func TestGenerateCaptcha(t *testing.T) {
 	}
 }
 
-func TestSessionSignUnsign(t *testing.T) {
-	val := `{"captcha_answer":123,"language":"de","csrf_token":"abcde"}`
-	signed := signValue(val)
-	if !strings.HasPrefix(signed, val+".") {
-		t.Errorf("Signed value should start with raw value: %q", signed)
+func TestSessionEncryptDecrypt(t *testing.T) {
+	val := []byte(`{"captcha_answer":123,"language":"de","csrf_token":"abcde"}`)
+	encrypted, err := encryptSession(val)
+	if err != nil {
+		t.Fatalf("Encryption failed: %v", err)
 	}
 
-	unsigned, ok := unsignValue(signed)
-	if !ok || unsigned != val {
-		t.Errorf("Unsign failed or value mismatch: %q, ok: %v", unsigned, ok)
+	decrypted, err := decryptSession(encrypted)
+	if err != nil {
+		t.Fatalf("Decryption failed: %v", err)
 	}
 
-	// Corrupted signature
-	corrupted := signed + "x"
-	_, ok = unsignValue(corrupted)
-	if ok {
-		t.Errorf("Unsign should have failed for corrupted signature")
+	if string(decrypted) != string(val) {
+		t.Errorf("Decrypted value mismatch: %s; expected %s", string(decrypted), string(val))
+	}
+
+	// Corrupted cipher
+	corrupted := encrypted + "x"
+	_, err = decryptSession(corrupted)
+	if err == nil {
+		t.Errorf("Decryption should have failed for corrupted ciphertext")
 	}
 
 	// Invalid format
-	_, ok = unsignValue("invalid")
-	if ok {
-		t.Errorf("Unsign should have failed for invalid format")
+	_, err = decryptSession("invalid")
+	if err == nil {
+		t.Errorf("Decryption should have failed for invalid ciphertext")
 	}
 }
 
@@ -115,7 +118,7 @@ func TestCSRFValidation(t *testing.T) {
 		Language:      "en",
 	}
 	sessionBytes, _ := json.Marshal(sessionData)
-	signedSession := signValue(base64.RawURLEncoding.EncodeToString(sessionBytes))
+	signedSession, _ := encryptSession(sessionBytes)
 	req.AddCookie(&http.Cookie{Name: "session", Value: signedSession})
 
 	rr := httptest.NewRecorder()
