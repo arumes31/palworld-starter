@@ -1,20 +1,19 @@
-{% extends "base.html" %}
-{% block title %}{% if language == 'de' %}Fehler – Falsche Antwort{% else %}Error – Wrong Answer{% endif %}{% endblock %}
+{{ define "title" }}{{ if eq .Language "de" }}Fehler – Falsche Antwort{{ else }}Error – Wrong Answer{{ end }}{{ end }}
 
-{% block content %}
+{{ define "content" }}
 <div class="card error">
-    <h2>{% if language == 'de' %}Oops! Falsche Antwort{% else %}Oops! Wrong answer{% endif %}</h2>
-    <p>{% if language == 'de' %}Bitte versuche es erneut – das Rätsel ist jedes Mal anders.{% else %}Please try again – the puzzle is different each time.{% endif %}</p>
+    <h2>{{ if eq .Language "de" }}Oops! Falsche Antwort{{ else }}Oops! Wrong answer{{ end }}</h2>
+    <p>{{ if eq .Language "de" }}Bitte versuche es erneut – das Rätsel ist jedes Mal anders.{{ else }}Please try again – the puzzle is different each time.{{ end }}</p>
     <br><br><br>
 
-    {% if retry_target == 'add_time' %}
-        <a href="{{ url_for('captcha') }}?lang={{ language or 'en' }}" class="btn-primary">
-            {% if language == 'de' %}Erneut versuchen{% else %}Retry{% endif %}
+    {{ if eq .RetryTarget "add_time" }}
+        <a href="/captcha?lang={{ .Language }}" class="btn-primary">
+            {{ if eq .Language "de" }}Erneut versuchen{{ else }}Retry{{ end }}
         </a>
-    {% else %}
-        <a href="{{ url_for('captcha_start') }}?lang={{ language or 'en' }}" class="btn-primary">
-            {% if language == 'de' %}Erneut versuchen{% else %}Retry{% endif %}
+    {{ else }}
+        <a href="/captcha_start?lang={{ .Language }}" class="btn-primary">
+            {{ if eq .Language "de" }}Erneut versuchen{{ else }}Retry{{ end }}
         </a>
-    {% endif %}
+    {{ end }}
 </div>
-{% endblock %}
+{{ end }}

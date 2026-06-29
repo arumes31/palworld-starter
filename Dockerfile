@@ -1,24 +1,33 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim
+# Build stage
+FROM golang:1.26-alpine AS builder
 
-# Set the working directory
+WORKDIR /build
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY main.go ./
+
+# Build the application as a statically linked binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter main.go
+
+# Final stage
+FROM alpine:3.19
+
+# Install ca-certificates for external Discord API calls
+RUN apk --no-cache add ca-certificates
+
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY . /app
+# Copy the binary and frontend assets from builder and host
+COPY --from=builder /build/palworld-starter .
+COPY templates ./templates
+COPY static ./static
 
-# Install any needed packages specified in requirements.txt
-RUN pip install -r requirements.txt
-RUN pip install Werkzeug==2.0.3
-RUN pip install requests==2.31.0
-RUN pip install --upgrade docker
-RUN pip install --upgrade requests
-#RUN pip install --upgrade Werkzeug
-RUN pip install gunicorn
-RUN pip install apscheduler
-
-# Make port 5000 available to the world outside this container
+# Expose port 5000
 EXPOSE 5000
 
-# Command to run the application using Gunicorn
-CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "app:app"]
+# Run the application
+CMD ["./palworld-starter"]

@@ -1,45 +1,44 @@
-{% extends "base.html" %}
-{% block title %}{% if language == 'de' %}Server starten – Puzzle lösen{% else %}Start Server – Solve Puzzle{% endif %}{% endblock %}
+{{ define "title" }}{{ if eq .Language "de" }}Server starten – Puzzle lösen{{ else }}Start Server – Solve Puzzle{{ end }}{{ end }}
 
-{% block content %}
-<a href="{{ discord_url }}" target="_blank" class="discord-fab" title="Join our Discord">
+{{ define "content" }}
+<a href="{{ .DiscordUrl }}" target="_blank" class="discord-fab" title="Join our Discord">
     <span class="discord-icon"></span>
     <span class="tooltip">Join Discord</span>
 </a>
 
 <div class="glass-card">
     <div class="language-selector" style="margin-bottom: 1rem; text-align: right;">
-        <label for="language">{% if language == 'de' %}Sprache:{% else %}Language:{% endif %}</label>
+        <label for="language">{{ if eq .Language "de" }}Sprache:{{ else }}Language:{{ end }}</label>
         <select id="language" onchange="changeLanguage(this.value)">
-            <option value="de" {% if language == 'de' %}selected{% endif %}>Deutsch</option>
-            <option value="en" {% if language == 'en' %}selected{% endif %}>English</option>
+            <option value="de" {{ if eq .Language "de" }}selected{{ end }}>Deutsch</option>
+            <option value="en" {{ if eq .Language "en" }}selected{{ end }}>English</option>
         </select>
     </div>
 
-    <h2 class="form-title">{% if language == 'de' %}Server starten{% else %}Start Server{% endif %}</h2>
-    <p class="form-subtitle">{% if language == 'de' %}Löse das Rätsel, um den Server zu starten und 4 Stunden hinzuzufügen.{% else %}Solve the puzzle to start the server and add 4 hours.{% endif %}</p>
+    <h2 class="form-title">{{ if eq .Language "de" }}Server starten{{ else }}Start Server{{ end }}</h2>
+    <p class="form-subtitle">{{ if eq .Language "de" }}Löse das Rätsel, um den Server zu starten und 4 Stunden hinzuzufügen.{{ else }}Solve the puzzle to start the server and add 4 hours.{{ end }}</p>
     <br>
-    <form action="{{ url_for('start_container') }}" method="POST" class="captcha-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <form action="/start" method="POST" class="captcha-form">
+        <input type="hidden" name="csrf_token" value="{{ .CsrfToken }}">
         <input type="hidden" name="origin" value="start_container">
         <div class="input-container">
-            <p class="question">{{ question }}</p>
+            <p class="question" oncopy="return false;" oncut="return false;" ondragstart="return false;" onselectstart="return false;" style="user-select: none;">{{ .Question }}</p>
             <select name="captcha_answer" id="captcha_answer" required class="captcha-select">
-                <option value="" disabled selected>{% if language == 'de' %}Wähle deine Antwort{% else %}Select your answer{% endif %}</option>
-                {% for i in range(0, 1000) %}
-                    <option value="{{ i }}">{{ i }}</option>
-                {% endfor %}
+                <option value="" disabled selected>{{ if eq .Language "de" }}Wähle deine Antwort{{ else }}Select your answer{{ end }}</option>
+                {{ range $i := range1000 }}
+                    <option value="{{ $i }}">{{ $i }}</option>
+                {{ end }}
             </select>
         </div>
         <br>
         <button type="submit" class="btn-primary full-width">
-            {% if language == 'de' %}Server starten{% else %}Start Server{% endif %}
+            {{ if eq .Language "de" }}Server starten{{ else }}Start Server{{ end }}
         </button>
     </form>
 </div>
-{% endblock %}
+{{ end }}
 
-{% block scripts %}
+{{ define "scripts" }}
 <script>
     function changeLanguage(lang) {
         const url = new URL(window.location);
@@ -52,4 +51,4 @@
         select && select.focus();
     });
 </script>
-{% endblock %}
+{{ end }}
