@@ -1,4 +1,4 @@
-# Palworld Server Control (Go Version)
+# Palworld Server Control
 
 A lightweight web application that controls and manages a Palworld server running in a Docker container, including auto-pausing/stopping on idle, scheduled RCON broadcasts, automatic backups, and Discord invite link caching.
 
