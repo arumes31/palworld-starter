@@ -33,7 +33,7 @@ jobs:
         with:
           args: "-exclude G404,G114,G704,G706,G124,G301 -fmt sarif -out results.sarif ./..."
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results.sarif
       - name: govulncheck
