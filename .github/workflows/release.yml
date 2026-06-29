@@ -1,0 +1,30 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Run go mod tidy
+        run: go mod tidy
+      - name: Build
+        run: |
+          CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter-linux-amd64 main.go
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o palworld-starter-linux-arm64 main.go
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            palworld-starter-linux-amd64
+            palworld-starter-linux-arm64
+          generate_release_notes: true

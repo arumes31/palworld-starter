@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.26-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /build
 
@@ -14,7 +14,7 @@ COPY main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter main.go
 
 # Final stage
-FROM alpine:3.21
+FROM alpine:3.22
 
 
 # Install ca-certificates for external Discord API calls
