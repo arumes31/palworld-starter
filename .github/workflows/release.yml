@@ -12,9 +12,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.26.4'
       - name: Run go mod tidy
         run: go mod tidy
       - name: Build
@@ -22,7 +22,7 @@ jobs:
           CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter-linux-amd64 .
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o palworld-starter-linux-arm64 .
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             palworld-starter-linux-amd64

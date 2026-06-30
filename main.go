@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
@@ -501,7 +500,7 @@ func isServerPaused(containerName string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	options := types.ContainerLogsOptions{
+	options := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Tail:       "40",
@@ -568,7 +567,7 @@ func runExecCommand(containerName string, cmd []string) (int, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	config := types.ExecConfig{
+	config := container.ExecOptions{
 		Cmd:          cmd,
 		AttachStdout: true,
 		AttachStderr: true,
@@ -579,7 +578,7 @@ func runExecCommand(containerName string, cmd []string) (int, string, error) {
 		return -1, "", err
 	}
 
-	resp, err := dockerCli.ContainerExecAttach(ctx, response.ID, types.ExecStartCheck{})
+	resp, err := dockerCli.ContainerExecAttach(ctx, response.ID, container.ExecStartOptions{})
 	if err != nil {
 		return -1, "", err
 	}
@@ -642,7 +641,7 @@ func startContainer(containerName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	err := dockerCli.ContainerStart(ctx, containerName, types.ContainerStartOptions{})
+	err := dockerCli.ContainerStart(ctx, containerName, container.StartOptions{})
 	if err == nil {
 		invalidateStatusCache()
 	}
@@ -992,7 +991,7 @@ func handleStop(containerName string) http.HandlerFunc {
 			return 0
 		})
 
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}
 }
 
