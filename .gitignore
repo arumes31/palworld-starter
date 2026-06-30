@@ -2,3 +2,4 @@ autobuild.sh
 palworld-starter
 *.exe
 *.test
+results.sarif
