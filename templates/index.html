@@ -11,6 +11,7 @@
                 <div>
                     <span class="sys-label">[{{ .ID }}] SYS_ID</span>
                     <h2 class="sys-name">{{ .DisplayName }}</h2>
+                    {{ if .GameVersion }}<span class="sys-version">Palworld {{ .GameVersion }}</span>{{ end }}
                 </div>
                 <div class="status-chip {{ .Status }}">
                     <span class="status-dot"></span>
@@ -20,8 +21,17 @@
 
             <div class="data-rows">
                 <div class="data-row accent">
-                    <span class="data-label" title="{{ if eq $lang "de" }}Der Server wird nur pausiert und kann jederzeit hier reaktiviert werden.{{ else }}The server is only paused and can be reactivated here at any time.{{ end }}">
+                    <span class="data-label">
                         {{ if eq $lang "de" }}Verbleibende Zeit{{ else }}Remaining Time{{ end }}
+                        <span class="info-icon" tabindex="0" aria-label="{{ if eq $lang "de" }}Info zur verbleibenden Zeit{{ else }}Remaining time info{{ end }}">?
+                            <span class="info-tooltip" role="tooltip">
+                                {{ if eq $lang "de" }}
+                                Läuft die Zeit ab, wird der Server nur gestoppt – deine Daten werden niemals gelöscht! Die ganze Welt bleibt gespeichert. Beantworte einfach das Captcha, um den Server jederzeit wieder zu starten.
+                                {{ else }}
+                                When the time expires the server is only stopped – your data is never wiped! The whole world stays saved. Just answer the captcha to restart the server anytime.
+                                {{ end }}
+                            </span>
+                        </span>
                     </span>
                     <span id="remaining-time-{{ .ID }}" class="data-value primary">–</span>
                 </div>
@@ -45,7 +55,7 @@
             </div>
 
             <div class="action-module">
-                {{ if eq .Status "running" }}
+                {{ if or (eq .Status "running") (eq .Status "starting") }}
                     <a href="/captcha?srv={{ .ID }}" class="btn-primary">+ {{ if eq $lang "de" }}12 Stunden hinzufügen{{ else }}Add 12 Hours{{ end }}</a>
                     <a href="steam://connect/{{ .Address }}" class="btn-outline">{{ if eq $lang "de" }}Über Steam verbinden{{ else }}Connect via Steam{{ end }}</a>
                 {{ else }}
@@ -105,6 +115,11 @@
             }
             const pct = Math.min((data.count / maxPlayers) * 100, 100);
             document.getElementById('player-bar-' + s.ID).style.width = pct + '%';
+            // Booting server became joinable → re-render with the live status.
+            if (s.Status === 'starting' && data.joinable) {
+                location.reload();
+                return;
+            }
             const list = document.getElementById('player-list-' + s.ID);
             list.innerHTML = '';
             data.players.forEach(p => {
@@ -117,12 +132,15 @@
 
     function initServer(s) {
         const remainingEl = document.getElementById('remaining-time-' + s.ID);
-        if (s.Status === 'running') {
-            let left = s.TimeRemaining;
+        if (s.Status === 'running' || s.Status === 'starting') {
+            // Anchor to a fixed deadline so the display never drifts, no
+            // matter how setTimeout is throttled in background tabs.
+            const deadline = Date.now() + s.TimeRemaining * 1000;
             const update = () => {
+                const left = Math.round((deadline - Date.now()) / 1000);
                 if (left >= 0) {
-                    remainingEl.textContent = formatTime(left--);
-                    setTimeout(update, 1000);
+                    remainingEl.textContent = formatTime(left);
+                    setTimeout(update, 1000 - (Date.now() % 1000));
                 } else {
                     remainingEl.textContent = translations.timeUp;
                 }

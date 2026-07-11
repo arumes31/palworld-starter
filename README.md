@@ -49,6 +49,9 @@ Set the following environment variables:
 | `REST_API_HOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
 | `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://pal.wowcraft.pw/` |
 | `SERVERS` | Comma-separated server ids to enable multi-server mode | *unset (single server)* |
+| `ADMIN_PASSWORD` | Palworld REST API admin password | *scraped from the game container's env* |
+| `SESSION_KEY` | Secret used to encrypt session cookies; set it so sessions survive restarts | *random per start* |
+| `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy) | *unset (loopback-only)* |
 
 ### Multiple Servers
 
@@ -63,6 +66,7 @@ variables (id uppercased, non-alphanumeric characters replaced by `_`):
 | `SERVER_<ID>_ADDRESS` | Public game address (IP:port) | *empty* |
 | `SERVER_<ID>_RESTHOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
 | `SERVER_<ID>_RESTPORT` | Host port of the container's Palworld REST API | `8212` |
+| `SERVER_<ID>_ADMIN_PASSWORD` | REST API admin password for this server | `ADMIN_PASSWORD` |
 
 Example:
 

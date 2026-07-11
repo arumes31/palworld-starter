@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -31,14 +32,17 @@ type PlayerInfo struct {
 
 // Controller manages one Palworld server container.
 type Controller struct {
-	cli             *client.Client
-	containerName   string
-	playersEndpoint string
+	cli           *client.Client
+	containerName string
+	apiBase       string
 
 	statusMu    sync.Mutex
 	statusCache string
 	statusTime  time.Time
-	adminPassword string
+
+	passwordMu      sync.Mutex
+	adminPassword   string
+	passwordFromEnv bool
 
 	playersMu    sync.Mutex
 	playersCache []PlayerInfo
@@ -48,12 +52,18 @@ type Controller struct {
 	metricsMu    sync.Mutex
 	metricsCache ServerMetrics
 	metricsTime  time.Time
+
+	infoMu    sync.Mutex
+	infoCache ServerInfo
+	infoTime  time.Time
 }
 
 // NewController creates a controller for the named container whose Palworld
-// REST API listens on the given localhost port. A Docker init failure is
-// logged, not fatal - all methods degrade gracefully.
-func NewController(containerName, restHost string, restPort int) *Controller {
+// REST API listens on the given host and port. adminPassword authenticates
+// REST calls; when empty it is scraped from the container's ADMIN_PASSWORD
+// env on the first inspect. A Docker init failure is logged, not fatal - all
+// methods degrade gracefully.
+func NewController(containerName, restHost string, restPort int, adminPassword string) *Controller {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Printf("Failed to initialize Docker client: %v", err)
@@ -65,7 +75,32 @@ func NewController(containerName, restHost string, restPort int) *Controller {
 	return &Controller{
 		cli:             cli,
 		containerName:   containerName,
-		playersEndpoint: fmt.Sprintf("http://%s:%d/v1/api/players", restHost, restPort),
+		apiBase:         fmt.Sprintf("http://%s:%d/v1/api", restHost, restPort),
+		adminPassword:   adminPassword,
+		passwordFromEnv: adminPassword != "",
+	}
+}
+
+// WebsiteURL is the public control-website address shown in in-game messages.
+func WebsiteURL() string {
+	if u := os.Getenv("WEBSITE_URL"); u != "" {
+		return u
+	}
+	return "https://pal.wowcraft.pw/"
+}
+
+// endpoint returns the full URL of a REST API endpoint, e.g. endpoint("players").
+func (c *Controller) endpoint(name string) string {
+	return c.apiBase + "/" + name
+}
+
+// authorize adds REST API basic auth to the request when a password is known.
+func (c *Controller) authorize(req *http.Request) {
+	c.passwordMu.Lock()
+	pw := c.adminPassword
+	c.passwordMu.Unlock()
+	if pw != "" {
+		req.SetBasicAuth("admin", pw)
 	}
 }
 
@@ -86,11 +121,17 @@ func (c *Controller) Status() string {
 		return "unknown"
 	}
 
-	for _, env := range inspect.Config.Env {
-		if strings.HasPrefix(env, "ADMIN_PASSWORD=") {
-			c.adminPassword = strings.SplitN(env, "=", 2)[1]
+	// Fallback for setups that don't configure ADMIN_PASSWORD on this
+	// process: scrape it from the game container's environment.
+	c.passwordMu.Lock()
+	if !c.passwordFromEnv {
+		for _, env := range inspect.Config.Env {
+			if strings.HasPrefix(env, "ADMIN_PASSWORD=") {
+				c.adminPassword = strings.SplitN(env, "=", 2)[1]
+			}
 		}
 	}
+	c.passwordMu.Unlock()
 
 	return inspect.State.Status
 }
@@ -171,10 +212,8 @@ func (c *Controller) IsPaused() bool {
 }
 
 func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
-	req, _ := http.NewRequest("GET", c.playersEndpoint, nil)
-	if c.adminPassword != "" {
-		req.SetBasicAuth("admin", c.adminPassword)
-	}
+	req, _ := http.NewRequest("GET", c.endpoint("players"), nil)
+	c.authorize(req)
 
 	hc := &http.Client{Timeout: 4 * time.Second}
 	resp, err := hc.Do(req)
@@ -204,14 +243,57 @@ type ServerMetrics struct {
 	Uptime    int `json:"uptime"`
 }
 
-func (c *Controller) fetchMetrics() (ServerMetrics, bool) {
-	req, _ := http.NewRequest("GET", strings.Replace(c.playersEndpoint, "players", "metrics", 1), nil)
-	
-	c.statusMu.Lock()
-	if c.adminPassword != "" {
-		req.SetBasicAuth("admin", c.adminPassword)
+// ServerInfo is the static server identity from /v1/api/info.
+type ServerInfo struct {
+	Version    string `json:"version"`
+	ServerName string `json:"servername"`
+}
+
+func (c *Controller) fetchInfo() (ServerInfo, bool) {
+	req, _ := http.NewRequest("GET", c.endpoint("info"), nil)
+	c.authorize(req)
+
+	hc := &http.Client{Timeout: 4 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return ServerInfo{}, false
 	}
-	c.statusMu.Unlock()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ServerInfo{}, false
+	}
+
+	var info ServerInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return ServerInfo{}, false
+	}
+	return info, true
+}
+
+// Info returns the game version and name, cached for 10 minutes. Like all
+// REST access it never wakes an auto-paused server; the last known info is
+// kept while the server is down so the version stays visible.
+func (c *Controller) Info() ServerInfo {
+	c.infoMu.Lock()
+	defer c.infoMu.Unlock()
+
+	if time.Since(c.infoTime) < 10*time.Minute && c.infoCache.Version != "" {
+		return c.infoCache
+	}
+
+	if c.CachedStatus() == "running" && !c.IsPaused() {
+		if info, ok := c.fetchInfo(); ok {
+			c.infoCache = info
+			c.infoTime = time.Now()
+		}
+	}
+	return c.infoCache
+}
+
+func (c *Controller) fetchMetrics() (ServerMetrics, bool) {
+	req, _ := http.NewRequest("GET", c.endpoint("metrics"), nil)
+	c.authorize(req)
 
 	hc := &http.Client{Timeout: 4 * time.Second}
 	resp, err := hc.Do(req)
@@ -340,18 +422,12 @@ func (c *Controller) Broadcast(message string) {
 		return
 	}
 
-	announceEndpoint := strings.Replace(c.playersEndpoint, "players", "announce", 1)
 	payload := map[string]string{"message": message}
 	body, _ := json.Marshal(payload)
 
-	req, _ := http.NewRequest("POST", announceEndpoint, bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", c.endpoint("announce"), bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
-	
-	c.statusMu.Lock()
-	if c.adminPassword != "" {
-		req.SetBasicAuth("admin", c.adminPassword)
-	}
-	c.statusMu.Unlock()
+	c.authorize(req)
 
 	hc := &http.Client{Timeout: 5 * time.Second}
 	resp, err := hc.Do(req)
@@ -410,31 +486,115 @@ func (c *Controller) Start() error {
 	return err
 }
 
-// Stop stops the container, taking a final backup first when the server is
-// awake with players. Waking an auto-paused server just to back it up is
-// pointless - the auto-pause flow already saved before pausing.
+// SaveWorld asks the game to write the world to disk via the REST API. The
+// Palworld API rejects POSTs without a Content-Length header with HTTP 411,
+// so the request must carry http.NoBody (Go then sends Content-Length: 0).
+func (c *Controller) SaveWorld() error {
+	req, err := http.NewRequest("POST", c.endpoint("save"), http.NoBody)
+	if err != nil {
+		return err
+	}
+	c.authorize(req)
+
+	hc := &http.Client{Timeout: 60 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("save returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// shutdownViaREST asks the game to exit gracefully after waitSeconds,
+// broadcasting message to connected players.
+func (c *Controller) shutdownViaREST(waitSeconds int, message string) error {
+	payload := map[string]interface{}{"waittime": waitSeconds, "message": message}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest("POST", c.endpoint("shutdown"), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.authorize(req)
+
+	hc := &http.Client{Timeout: 10 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("shutdown returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// waitForExit polls the container status until it leaves "running" or the
+// timeout elapses.
+func (c *Controller) waitForExit(maxWait time.Duration) bool {
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		if c.Status() != "running" {
+			return true
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return false
+}
+
+// Stop stops the server. An awake server is saved via the REST API, backed up
+// when players are online, and shut down gracefully so players get an in-game
+// warning; docker stop is only the fallback. An auto-paused server is stopped
+// directly - the auto-pause flow already saved, and waking it just to back it
+// up is pointless.
 func (c *Controller) Stop() error {
 	if c.cli == nil {
 		return fmt.Errorf("docker client not initialized")
 	}
+
+	status := c.Status()
+	if status != "running" {
+		return nil
+	}
+
+	if !c.IsPaused() {
+		if err := c.SaveWorld(); err != nil {
+			log.Printf("[%s] World save before stop failed: %v", c.containerName, err)
+		}
+
+		waitSeconds := 1
+		if c.HasActivePlayers() {
+			_, _, _ = c.exec([]string{"backup"})
+			waitSeconds = 15
+		}
+
+		message := fmt.Sprintf("Server pauses in %d seconds! Your data is safe - restart it anytime at %s", waitSeconds, WebsiteURL())
+		if err := c.shutdownViaREST(waitSeconds, message); err != nil {
+			log.Printf("[%s] REST shutdown failed, falling back to docker stop: %v", c.containerName, err)
+		} else if c.waitForExit(time.Duration(waitSeconds+30) * time.Second) {
+			c.invalidateStatusCache()
+			return nil
+		} else {
+			log.Printf("[%s] REST shutdown timed out, falling back to docker stop", c.containerName)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	status := c.Status()
-	if status == "running" {
-		if !c.IsPaused() && c.HasActivePlayers() {
-			_, _, _ = c.exec([]string{"backup"})
-		}
-
-		timeout := 10
-		stopOpts := container.StopOptions{
-			Timeout: &timeout,
-		}
-		err := c.cli.ContainerStop(ctx, c.containerName, stopOpts)
-		if err == nil {
-			c.invalidateStatusCache()
-		}
-		return err
+	timeout := 10
+	stopOpts := container.StopOptions{
+		Timeout: &timeout,
 	}
-	return nil
+	err := c.cli.ContainerStop(ctx, c.containerName, stopOpts)
+	if err == nil {
+		c.invalidateStatusCache()
+	}
+	return err
 }

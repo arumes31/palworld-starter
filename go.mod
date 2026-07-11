@@ -1,4 +1,4 @@
-module arumes31/palworld-starter
+module github.com/arumes31/palworld-starter
 
 go 1.26.4
 

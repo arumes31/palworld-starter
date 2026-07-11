@@ -6,22 +6,23 @@ package web
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"arumes31/palworld-starter/internal/captcha"
-	"arumes31/palworld-starter/internal/discord"
-	"arumes31/palworld-starter/internal/game"
-	"arumes31/palworld-starter/internal/state"
+	"github.com/arumes31/palworld-starter/internal/captcha"
+	"github.com/arumes31/palworld-starter/internal/discord"
+	"github.com/arumes31/palworld-starter/internal/game"
+	"github.com/arumes31/palworld-starter/internal/state"
 )
 
 // BootEstimateSeconds is the typical time the Palworld server needs from
@@ -39,37 +40,91 @@ type Instance struct {
 
 // Server holds the web layer's dependencies.
 type Server struct {
-	instances   []*Instance
-	byID        map[string]*Instance
-	templateDir string
-	staticDir   string
+	instances []*Instance
+	byID      map[string]*Instance
+	staticDir string
+	templates map[string]*template.Template
+	stopToken string
 }
 
 // New creates the web server for the given server instances (at least one).
+// All templates are parsed once here; a broken template fails the process at
+// startup instead of 500-ing every request later.
 func New(instances []*Instance, templateDir, staticDir string) *Server {
 	byID := make(map[string]*Instance, len(instances))
 	for _, inst := range instances {
 		byID[inst.ID] = inst
 	}
 	return &Server{
-		instances:   instances,
-		byID:        byID,
-		templateDir: templateDir,
-		staticDir:   staticDir,
+		instances: instances,
+		byID:      byID,
+		staticDir: staticDir,
+		templates: parseTemplates(templateDir),
+		stopToken: os.Getenv("STOP_TOKEN"),
 	}
 }
 
+var templateFuncs = template.FuncMap{
+	"title": func(s string) string {
+		if s == "" {
+			return ""
+		}
+		return strings.ToUpper(s[:1]) + s[1:]
+	},
+	"tojson": func(v interface{}) template.JS {
+		b, _ := json.Marshal(v)
+		return template.JS(b) // #nosec G203 //nolint:gosec // marshaled from typed server-side data, never raw user input
+	},
+	"range1000": func() []int {
+		res := make([]int, 1000)
+		for i := 0; i < 1000; i++ {
+			res[i] = i
+		}
+		return res
+	},
+	"mod": func(i, j int) int {
+		return i % j
+	},
+}
+
+// parseTemplates parses every page template together with base.html.
+func parseTemplates(templateDir string) map[string]*template.Template {
+	entries, err := os.ReadDir(templateDir)
+	if err != nil {
+		log.Fatalf("Cannot read template dir %s: %v", templateDir, err)
+	}
+
+	templates := make(map[string]*template.Template)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || name == "base.html" || !strings.HasSuffix(name, ".html") {
+			continue
+		}
+		t, err := template.New("base.html").Funcs(templateFuncs).ParseFiles(
+			filepath.Join(templateDir, "base.html"),
+			filepath.Join(templateDir, name),
+		)
+		if err != nil {
+			log.Fatalf("Template %s: %v", name, err)
+		}
+		templates[name] = t
+	}
+	return templates
+}
+
 // resolveInstance picks the server addressed by the "srv" query or form
-// parameter, defaulting to the first configured server.
+// parameter. An empty parameter selects the first configured server; an
+// unknown id returns nil and the caller must answer 404, so a mistyped id
+// can never target the wrong server.
 func (s *Server) resolveInstance(r *http.Request) *Instance {
 	id := r.URL.Query().Get("srv")
 	if id == "" {
 		id = r.FormValue("srv")
 	}
-	if inst, ok := s.byID[id]; ok {
-		return inst
+	if id == "" {
+		return s.instances[0]
 	}
-	return s.instances[0]
+	return s.byID[id]
 }
 
 // Routes returns the HTTP mux with all handlers registered.
@@ -92,7 +147,10 @@ func (s *Server) Routes() *http.ServeMux {
 	return mux
 }
 
-// ServerPanel is the per-server view model for the index page.
+// ServerPanel is the per-server view model for the index page. Status adds a
+// synthetic "starting" over the raw container states: the container runs but
+// the game's REST API is not up yet, i.e. the server is booting and not
+// joinable.
 type ServerPanel struct {
 	ID            string
 	DisplayName   string
@@ -100,6 +158,7 @@ type ServerPanel struct {
 	Status        string
 	TimeRemaining int
 	Metrics       game.ServerMetrics
+	GameVersion   string
 }
 
 // PageContext is the data passed to every template.
@@ -127,38 +186,13 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx Page
 	}
 
 	ctx.AppVersion = AppVersion
-	t, err := template.New("base.html").Funcs(template.FuncMap{
-		"title": func(s string) string {
-			if s == "" {
-				return ""
-			}
-			return strings.ToUpper(s[:1]) + s[1:]
-		},
-		"tojson": func(v interface{}) template.JS {
-			b, _ := json.Marshal(v)
-			return template.JS(b) // #nosec G203 //nolint:gosec // marshaled from typed server-side data, never raw user input
-		},
-		"range1000": func() []int {
-			res := make([]int, 1000)
-			for i := 0; i < 1000; i++ {
-				res[i] = i
-			}
-			return res
-		},
-		"mod": func(i, j int) int {
-			return i % j
-		},
-	}).ParseFiles(
-		filepath.Join(s.templateDir, "base.html"),
-		filepath.Join(s.templateDir, tmplName),
-	)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Template error: %v", err), http.StatusInternalServerError)
+	t, ok := s.templates[tmplName]
+	if !ok {
+		http.Error(w, "Unknown template: "+tmplName, http.StatusInternalServerError)
 		return
 	}
 
-	err = t.ExecuteTemplate(w, "base.html", ctx)
-	if err != nil {
+	if err := t.ExecuteTemplate(w, "base.html", ctx); err != nil {
 		log.Printf("Template execution error: %v", err)
 	}
 }
@@ -178,13 +212,20 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	panels := make([]ServerPanel, 0, len(s.instances))
 	for _, inst := range s.instances {
+		status := inst.Game.CachedStatus()
+		// Booting: container up, but the game is not joinable yet. Auto-paused
+		// servers stay "running" - they wake on the first join attempt.
+		if status == "running" && !inst.Game.IsPaused() && !inst.Game.RestAPIUp() {
+			status = "starting"
+		}
 		panels = append(panels, ServerPanel{
 			ID:            inst.ID,
 			DisplayName:   inst.DisplayName,
 			Address:       inst.Address,
-			Status:        inst.Game.CachedStatus(),
+			Status:        status,
 			TimeRemaining: inst.State.GetTimeRemaining(),
 			Metrics:       inst.Game.Metrics(),
+			GameVersion:   inst.Game.Info().Version,
 		})
 	}
 
@@ -199,6 +240,10 @@ func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionData := getSession(r)
 		inst := s.resolveInstance(r)
+		if inst == nil {
+			http.NotFound(w, r)
+			return
+		}
 
 		lang := r.URL.Query().Get("lang")
 		if lang == "" {
@@ -276,6 +321,11 @@ func (s *Server) handleCaptchaImage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCaptchaError(w http.ResponseWriter, r *http.Request) {
 	sessionData := getSession(r)
+	inst := s.resolveInstance(r)
+	if inst == nil {
+		http.NotFound(w, r)
+		return
+	}
 	origin := r.URL.Query().Get("origin")
 	if origin == "" {
 		origin = "add_time"
@@ -284,7 +334,7 @@ func (s *Server) handleCaptchaError(w http.ResponseWriter, r *http.Request) {
 
 	s.renderTemplate(w, "captcha_error.html", PageContext{
 		Language:    sessionData.Language,
-		ServerID:    s.resolveInstance(r).ID,
+		ServerID:    inst.ID,
 		DiscordUrl:  discordUrl,
 		RetryTarget: origin,
 	})
@@ -335,6 +385,12 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	if status != "running" {
 		if err := inst.Game.Start(); err != nil {
 			log.Printf("Failed to start container %s: %v", inst.ID, err)
+			msg := "Failed to start the server - please try again in a minute."
+			if sessionData.Language == "de" {
+				msg = "Server konnte nicht gestartet werden - bitte versuche es in einer Minute erneut."
+			}
+			http.Error(w, msg, http.StatusBadGateway)
+			return
 		} else {
 			inst.State.UpdateTimeRemaining(func(current int) int {
 				val := current
@@ -395,17 +451,29 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Restrict to localhost / loopback
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if host != "127.0.0.1" && host != "::1" && host != "localhost" {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
+	// STOP_TOKEN set: require the shared secret (works behind a reverse
+	// proxy where RemoteAddr is useless). Unset: legacy loopback-only check.
+	if s.stopToken != "" {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Stop-Token")), []byte(s.stopToken)) != 1 {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+	} else {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		if host != "127.0.0.1" && host != "::1" && host != "localhost" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	inst := s.resolveInstance(r)
+	if inst == nil {
+		http.NotFound(w, r)
+		return
+	}
 	status := inst.Game.Status()
 	if status == "running" {
 		if err := inst.Game.Stop(); err != nil {
@@ -424,6 +492,10 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStarting(w http.ResponseWriter, r *http.Request) {
 	sessionData := getSession(r)
 	inst := s.resolveInstance(r)
+	if inst == nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	s.renderTemplate(w, "starting.html", PageContext{
 		Language:            sessionData.Language,
@@ -438,6 +510,10 @@ func (s *Server) handleStarting(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 	inst := s.resolveInstance(r)
+	if inst == nil {
+		http.NotFound(w, r)
+		return
+	}
 	players := inst.Game.Players()
 	if players == nil {
 		players = []game.PlayerInfo{}

@@ -69,16 +69,29 @@ func load(filePath string) int {
 	return 900 // Default 15 minutes grace on first launch
 }
 
+// save writes to a temp file and renames it into place, so a crash mid-write
+// can never leave a corrupt file that would reset the timer on next start.
 func (s *State) save() {
 	content := timeFileContent{TimeRemaining: s.timeRemaining}
 	dir := filepath.Dir(s.filePath)
 	_ = os.MkdirAll(dir, 0755)
 
-	file, err := os.Create(s.filePath)
+	tmpPath := s.filePath + ".tmp"
+	file, err := os.Create(tmpPath)
 	if err != nil {
 		log.Printf("Failed to save time file: %v", err)
 		return
 	}
-	defer file.Close()
-	_ = json.NewEncoder(file).Encode(content)
+	if err := json.NewEncoder(file).Encode(content); err != nil {
+		log.Printf("Failed to encode time file: %v", err)
+		file.Close()
+		return
+	}
+	if err := file.Close(); err != nil {
+		log.Printf("Failed to close time file: %v", err)
+		return
+	}
+	if err := os.Rename(tmpPath, s.filePath); err != nil {
+		log.Printf("Failed to replace time file: %v", err)
+	}
 }
