@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 // legacyTimeFilePath is the state file of the original single-server setup;
 // it is kept for the default server so upgrades do not lose the timer.
-const legacyTimeFilePath = "/hostmem/gamecontroller-palworld-time_remaining.json"
+const legacyTimeFilePath = "gamecontroller-palworld-time_remaining.json"
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -62,12 +63,13 @@ func loadInstances() []*web.Instance {
 	serverList := os.Getenv("SERVERS")
 	if serverList == "" {
 		containerName := envOr("DOCKER_CONTAINER_NAME", "my_container")
+		stateDir := envOr("STATE_DIR", "/hostmem")
 		return []*web.Instance{{
 			ID:          "default",
 			DisplayName: envOr("DOCKER_CONTAINER_NAME", "Palworld Server"),
 			Address:     envOr("SERVER_ADDRESS", "80.66.59.216:8211"),
 			Game:        game.NewController(containerName, 8212),
-			State:       state.New(legacyTimeFilePath),
+			State:       state.New(filepath.Join(stateDir, legacyTimeFilePath)),
 		}}
 	}
 
@@ -84,13 +86,14 @@ func loadInstances() []*web.Instance {
 			restPort = p
 		}
 		containerName := envOr("SERVER_"+key+"_CONTAINER", id)
+		stateDir := envOr("STATE_DIR", "/hostmem")
 
 		instances = append(instances, &web.Instance{
 			ID:          id,
 			DisplayName: envOr("SERVER_"+key+"_NAME", id),
 			Address:     envOr("SERVER_"+key+"_ADDRESS", ""),
 			Game:        game.NewController(containerName, restPort),
-			State:       state.New(fmt.Sprintf("/hostmem/gamecontroller-%s-time_remaining.json", id)),
+			State:       state.New(filepath.Join(stateDir, fmt.Sprintf("gamecontroller-%s-time_remaining.json", id))),
 		})
 	}
 	if len(instances) == 0 {

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  palworld-starter:
+    image: ghcr.io/arumes31/palworld-starter:latest
+    container_name: palworld-starter
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount Docker socket so the app can manage Palworld containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount data directory so the remaining time state survives restarts
+      - ./data:/data
+    environment:
+      - STATE_DIR=/data
+      - DOCKER_CONTAINER_NAME=palworld-server
+      # For multiple servers, uncomment and adjust:
+      # - SERVERS=pal1,pal2
+      # - SERVER_PAL1_NAME=Alpha Nexus
+      # - SERVER_PAL1_CONTAINER=palworld-server-1
+      # - SERVER_PAL2_NAME=Beta Hub
+      # - SERVER_PAL2_CONTAINER=palworld-server-2

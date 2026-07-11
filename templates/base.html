@@ -8,13 +8,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v={{ .AppVersion }}">
     {{ block "head" . }}{{ end }}
 </head>
 <body>
     <!-- Fully animated background scene -->
     <canvas id="bg-scene" aria-hidden="true"></canvas>
-    <script src="/static/background.js" defer></script>
+    <script src="/static/background.js?v={{ .AppVersion }}" defer></script>
 
     <!-- Discord Floating Action Button -->
     <a href="{{ .DiscordUrl }}" target="_blank" class="discord-fab" title="Join our Discord">
@@ -29,8 +29,8 @@
     <footer class="site-footer">
         <div class="footer-brand">© 2026 PALWORLD-COMMAND-CENTER</div>
         <nav class="footer-nav lang-switch">
-            <a href="?lang=de{{ if .ServerID }}&server={{ .ServerID }}{{ end }}" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
-            <a href="?lang=en{{ if .ServerID }}&server={{ .ServerID }}{{ end }}" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
+            <a href="?lang=de{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
+            <a href="?lang=en{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
         </nav>
     </footer>
 
