@@ -46,6 +46,7 @@ Set the following environment variables:
 | `DISCORD_CHANNEL_ID` | Channel ID for generating invites | *Optional* |
 | `DISCORD_FALLBACK_URL` | Fallback invitation link | `https://discord.gg/XXXXXINVITENOTFOUNDXXXXXX` |
 | `SERVER_ADDRESS` | Public game address shown on the page (IP:port) | `80.66.59.216:8211` |
+| `REST_API_HOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
 | `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://pal.wowcraft.pw/` |
 | `SERVERS` | Comma-separated server ids to enable multi-server mode | *unset (single server)* |
 
@@ -60,6 +61,7 @@ variables (id uppercased, non-alphanumeric characters replaced by `_`):
 | `SERVER_<ID>_CONTAINER` | Docker container name | the id |
 | `SERVER_<ID>_NAME` | Display name on the website | the id |
 | `SERVER_<ID>_ADDRESS` | Public game address (IP:port) | *empty* |
+| `SERVER_<ID>_RESTHOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
 | `SERVER_<ID>_RESTPORT` | Host port of the container's Palworld REST API | `8212` |
 
 Example:
@@ -70,10 +72,12 @@ environment:
   SERVER_PAL1_CONTAINER: "palworld-1"
   SERVER_PAL1_NAME: "Palworld Main"
   SERVER_PAL1_ADDRESS: "80.66.59.216:8211"
+  SERVER_PAL1_RESTHOST: "palworld-1"
   SERVER_PAL1_RESTPORT: "8212"
   SERVER_PAL2_CONTAINER: "palworld-2"
   SERVER_PAL2_NAME: "Palworld Hardcore"
   SERVER_PAL2_ADDRESS: "80.66.59.216:8221"
+  SERVER_PAL2_RESTHOST: "palworld-2"
   SERVER_PAL2_RESTPORT: "8222"
 ```
 
