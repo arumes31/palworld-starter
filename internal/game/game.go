@@ -56,6 +56,11 @@ type Controller struct {
 	infoMu    sync.Mutex
 	infoCache ServerInfo
 	infoTime  time.Time
+
+	settingsMu    sync.Mutex
+	settingsCache ServerSettings
+	settingsKnown bool
+	settingsTime  time.Time
 }
 
 // NewController creates a controller for the named container whose Palworld
@@ -330,6 +335,60 @@ func (c *Controller) Metrics() ServerMetrics {
 	}
 	c.metricsTime = time.Now()
 	return c.metricsCache
+}
+
+// ServerSettings is the subset of /v1/api/settings the site displays.
+type ServerSettings struct {
+	IsPvP bool `json:"bIsPvP"`
+}
+
+func (c *Controller) fetchSettings() (ServerSettings, bool) {
+	req, _ := http.NewRequest("GET", c.endpoint("settings"), nil)
+	c.authorize(req)
+
+	hc := &http.Client{Timeout: 4 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return ServerSettings{}, false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ServerSettings{}, false
+	}
+
+	var s ServerSettings
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return ServerSettings{}, false
+	}
+	return s, true
+}
+
+// GameMode reports "pvp" or "pve", or "" while the mode is still unknown
+// (the server has not been awake since this process started). The last known
+// mode is kept while the server is down - the setting is static per world.
+// Like all REST access it never wakes an auto-paused server.
+func (c *Controller) GameMode() string {
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
+
+	if !c.settingsKnown || time.Since(c.settingsTime) >= 10*time.Minute {
+		if c.CachedStatus() == "running" && !c.IsPaused() {
+			if s, ok := c.fetchSettings(); ok {
+				c.settingsCache = s
+				c.settingsKnown = true
+				c.settingsTime = time.Now()
+			}
+		}
+	}
+
+	if !c.settingsKnown {
+		return ""
+	}
+	if c.settingsCache.IsPvP {
+		return "pvp"
+	}
+	return "pve"
 }
 
 // refreshPlayersLocked refreshes the players cache. Callers must hold

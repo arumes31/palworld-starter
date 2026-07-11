@@ -351,6 +351,7 @@ func TestAllTemplatesRender(t *testing.T) {
 					Address:       "1.2.3.4:8211",
 					Status:        "running",
 					TimeRemaining: 900,
+					GameMode:      "pve",
 				}},
 			})
 			if rr.Code != http.StatusOK {
@@ -361,6 +362,9 @@ func TestAllTemplatesRender(t *testing.T) {
 			}
 			if name == "index.html" && !strings.Contains(rr.Body.String(), "steam://connect/1.2.3.4:8211") {
 				t.Errorf("Running index (%s) must contain the Steam connect link", lang)
+			}
+			if name == "index.html" && !strings.Contains(rr.Body.String(), "mode-chip pve") {
+				t.Errorf("Running index (%s) must show the PvE badge", lang)
 			}
 		}
 	}

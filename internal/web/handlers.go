@@ -162,6 +162,7 @@ type ServerPanel struct {
 	TimeRemaining int
 	Metrics       game.ServerMetrics
 	GameVersion   string
+	GameMode      string // "pvp", "pve" or "" while unknown
 }
 
 // PageContext is the data passed to every template.
@@ -240,6 +241,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			TimeRemaining: inst.State.GetTimeRemaining(),
 			Metrics:       inst.Game.Metrics(),
 			GameVersion:   inst.Game.Info().Version,
+			GameMode:      inst.Game.GameMode(),
 		})
 	}
 

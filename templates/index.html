@@ -30,9 +30,16 @@
                     <h2 class="sys-name">{{ .DisplayName }}</h2>
                     {{ if .GameVersion }}<span class="sys-version">Palworld {{ .GameVersion }}</span>{{ end }}
                 </div>
-                <div class="status-chip {{ .Status }}">
-                    <span class="status-dot"></span>
-                    <span>{{ title .Status }}</span>
+                <div class="chip-stack">
+                    <div class="status-chip {{ .Status }}">
+                        <span class="status-dot"></span>
+                        <span>{{ title .Status }}</span>
+                    </div>
+                    {{ if .GameMode }}
+                    <div class="mode-chip {{ .GameMode }}" title="{{ if eq .GameMode "pvp" }}{{ if eq $lang "de" }}Spieler gegen Spieler{{ else }}Player vs Player{{ end }}{{ else }}{{ if eq $lang "de" }}Spieler gegen Umgebung – kein Spielerkampf{{ else }}Player vs Environment – no player combat{{ end }}{{ end }}">
+                        {{ if eq .GameMode "pvp" }}PvP{{ else }}PvE{{ end }}
+                    </div>
+                    {{ end }}
                 </div>
             </div>
 
