@@ -265,6 +265,61 @@ func TestIndexRendersPlayersSection(t *testing.T) {
 	}
 }
 
+func TestSEOEndpoints(t *testing.T) {
+	srv := newTestServer(t)
+
+	// robots.txt must allow crawling and point to the sitemap.
+	rr := httptest.NewRecorder()
+	srv.handleRobots(rr, httptest.NewRequest("GET", "/robots.txt", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("robots.txt: expected 200, got %d", rr.Code)
+	}
+	for _, want := range []string{"User-agent: *", "Allow: /", "Sitemap: "} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("robots.txt missing %q", want)
+		}
+	}
+
+	// sitemap.xml must be a urlset with hreflang alternates.
+	rr = httptest.NewRecorder()
+	srv.handleSitemap(rr, httptest.NewRequest("GET", "/sitemap.xml", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("sitemap.xml: expected 200, got %d", rr.Code)
+	}
+	for _, want := range []string{"<urlset", `hreflang="en"`, `hreflang="de"`} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("sitemap.xml missing %q", want)
+		}
+	}
+
+	// The index must carry the SEO meta tags, the crawlable heading and
+	// syntactically valid JSON-LD structured data.
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Language", "en")
+	rr = httptest.NewRecorder()
+	srv.handleIndex(rr, req)
+	html := rr.Body.String()
+	for _, want := range []string{`name="description"`, `property="og:title"`, `rel="canonical"`, "Free Palworld Servers", "application/ld+json"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("Index page missing %q", want)
+		}
+	}
+
+	start := strings.Index(html, `<script type="application/ld+json">`)
+	end := strings.Index(html[start:], "</script>")
+	if start < 0 || end < 0 {
+		t.Fatal("JSON-LD script block not found")
+	}
+	jsonLD := html[start+len(`<script type="application/ld+json">`) : start+end]
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonLD), &parsed); err != nil {
+		t.Fatalf("JSON-LD is not valid JSON: %v\n%s", err, jsonLD)
+	}
+	if parsed["@context"] != "https://schema.org" {
+		t.Errorf("JSON-LD @context wrong: %v", parsed["@context"])
+	}
+}
+
 // TestAllTemplatesRender guards against a bad deploy 500-ing every page: each
 // content template must parse together with base.html and execute in both
 // languages.

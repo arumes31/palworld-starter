@@ -156,6 +156,81 @@ body {
     z-index: 10;
 }
 
+/* ==== Page stack (intro + panels + FAQ) ==== */
+.page-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2.5rem;
+    width: 100%;
+}
+
+.page-intro {
+    text-align: center;
+    max-width: 46rem;
+}
+
+.page-intro h1 {
+    font-family: var(--font-display);
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--on-surface);
+    margin-top: 0.5rem;
+}
+
+.page-intro p {
+    margin-top: 0.75rem;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--on-surface);
+    opacity: 0.7;
+}
+
+/* ==== FAQ section ==== */
+.faq-section {
+    width: 100%;
+    max-width: 56rem;
+    background: rgba(23, 32, 48, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(59, 73, 75, 0.3);
+    clip-path: var(--chamfer);
+    padding: 2rem;
+}
+
+.faq-section h2 {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--on-surface);
+    margin-bottom: 1rem;
+}
+
+.faq-section details {
+    border-bottom: 1px solid rgba(59, 73, 75, 0.3);
+    padding: 0.75rem 0;
+}
+
+.faq-section details:last-child {
+    border-bottom: none;
+}
+
+.faq-section summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--primary-container);
+}
+
+.faq-section p {
+    margin-top: 0.6rem;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--on-surface);
+    opacity: 0.75;
+}
+
 /* ==== Panel Row (multi-server layout) ==== */
 .panel-row {
     display: flex;

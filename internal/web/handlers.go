@@ -9,6 +9,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net"
@@ -141,6 +142,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("/starting", s.handleStarting)
 	mux.HandleFunc("/api/players", s.handlePlayers)
 	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/robots.txt", s.handleRobots)
+	mux.HandleFunc("/sitemap.xml", s.handleSitemap)
 
 	fileServer := http.FileServer(http.Dir(s.staticDir))
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
@@ -176,6 +179,16 @@ type PageContext struct {
 	BootEstimateSeconds int
 	Servers             []ServerPanel
 	AppVersion          string
+	SiteURL             string
+}
+
+// siteURL returns the public website base URL, always with a trailing slash.
+func siteURL() string {
+	u := game.WebsiteURL()
+	if !strings.HasSuffix(u, "/") {
+		u += "/"
+	}
+	return u
 }
 
 var AppVersion = strconv.FormatInt(time.Now().Unix(), 10)
@@ -186,6 +199,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx Page
 	}
 
 	ctx.AppVersion = AppVersion
+	ctx.SiteURL = siteURL()
 	t, ok := s.templates[tmplName]
 	if !ok {
 		http.Error(w, "Unknown template: "+tmplName, http.StatusInternalServerError)
@@ -529,6 +543,39 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 		"joinable": inst.Game.RestAPIUp(),
 		"fps":      metrics.ServerFPS,
 	})
+}
+
+// handleRobots invites crawlers to index the status page while keeping them
+// out of the captcha flow and the JSON endpoints.
+func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintf(w, `User-agent: *
+Allow: /
+Disallow: /captcha
+Disallow: /captcha_start
+Disallow: /captcha_error
+Disallow: /starting
+Disallow: /api/
+
+Sitemap: %ssitemap.xml
+`, siteURL())
+}
+
+// handleSitemap serves a minimal sitemap: the landing page in both languages.
+func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
+	base := siteURL()
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>%s</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="%s?lang=en"/>
+    <xhtml:link rel="alternate" hreflang="de" href="%s?lang=de"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="%s"/>
+    <changefreq>hourly</changefreq>
+  </url>
+</urlset>
+`, base, base, base, base)
 }
 
 // handleHealthz is a liveness endpoint for uptime monitoring. It always

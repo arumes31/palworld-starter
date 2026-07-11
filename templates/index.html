@@ -1,8 +1,25 @@
-{{ define "title" }}Palworld Server Control{{ end }}
+{{ define "title" }}{{ if eq .Language "de" }}Kostenlose Palworld Server – 24/7 Dedicated Server gratis beitreten{{ else }}Free Palworld Servers – Join 24/7 Dedicated Servers{{ end }}{{ end }}
 
 {{ define "content" }}
 {{ $lang := .Language }}
-<div class="panel-row">
+<div class="page-stack">
+    <header class="page-intro">
+        <span class="sys-label">PALWORLD-COMMAND-CENTER</span>
+        <h1>{{ if eq $lang "de" }}Kostenlose Palworld Server{{ else }}Free Palworld Servers{{ end }}</h1>
+        <p>
+            {{ if eq $lang "de" }}
+            Tritt unseren kostenlosen Palworld Dedicated Servern bei – 24/7, ohne Anmeldung, ohne Kosten.
+            Läuft die Serverzeit ab, wird der Server nur pausiert: Deine Welt bleibt für immer gespeichert
+            und kann jederzeit per Captcha wieder gestartet werden.
+            {{ else }}
+            Join our free Palworld dedicated servers – 24/7, no signup, no cost.
+            When the server time runs out the server is only paused: your world stays saved forever
+            and can be restarted anytime by solving a quick captcha.
+            {{ end }}
+        </p>
+    </header>
+
+    <div class="panel-row">
     {{ range .Servers }}
     <div class="panel">
         <div class="panel-grid-accent" aria-hidden="true"></div>
@@ -81,7 +98,92 @@
         </div>
     </div>
     {{ end }}
+    </div>
+
+    <section class="faq-section">
+        <h2>{{ if eq $lang "de" }}Häufige Fragen{{ else }}Frequently Asked Questions{{ end }}</h2>
+        <details>
+            <summary>{{ if eq $lang "de" }}Sind diese Palworld Server wirklich kostenlos?{{ else }}Are these Palworld servers really free?{{ end }}</summary>
+            <p>{{ if eq $lang "de" }}Ja, alle Server sind zu 100% kostenlos – keine Anmeldung, kein Abo, keine versteckten Kosten. Einfach beitreten und spielen.{{ else }}Yes, all servers are 100% free – no signup, no subscription, no hidden costs. Just join and play.{{ end }}</p>
+        </details>
+        <details>
+            <summary>{{ if eq $lang "de" }}Werden meine Daten gelöscht, wenn die Zeit abläuft?{{ else }}Is my world data deleted when the timer expires?{{ end }}</summary>
+            <p>{{ if eq $lang "de" }}Nein, niemals! Der Server wird nur gestoppt (pausiert). Deine komplette Welt, Basis und alle Pals bleiben gespeichert. Beantworte einfach das Captcha, um den Server jederzeit wieder zu starten.{{ else }}No, never! The server is only stopped (paused). Your entire world, base and all Pals stay saved. Just answer the captcha to restart the server anytime.{{ end }}</p>
+        </details>
+        <details>
+            <summary>{{ if eq $lang "de" }}Wie starte oder verlängere ich einen Server?{{ else }}How do I start or extend a server?{{ end }}</summary>
+            <p>{{ if eq $lang "de" }}Klicke auf „Server starten" oder „12 Stunden hinzufügen" und löse ein kurzes Rätsel-Captcha. Solange Spieler online sind, verlängert sich die Laufzeit außerdem automatisch.{{ else }}Click "Start Server" or "Add 12 Hours" and solve a quick puzzle captcha. While players are online, the runtime also extends automatically.{{ end }}</p>
+        </details>
+        <details>
+            <summary>{{ if eq $lang "de" }}Wie trete ich einem Server bei?{{ else }}How do I join a server?{{ end }}</summary>
+            <p>{{ if eq $lang "de" }}Starte Palworld, wähle im Hauptmenü „Mehrspielerspiel beitreten" und gib die Server-IP von oben ein – oder nutze den Button „Über Steam verbinden".{{ else }}Launch Palworld, choose "Join Multiplayer Game" in the main menu and enter the server IP shown above – or use the "Connect via Steam" button.{{ end }}</p>
+        </details>
+    </section>
 </div>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "name": "Palworld Command Center",
+      "alternateName": "Free Palworld Servers",
+      "url": "{{ .SiteURL }}",
+      "inLanguage": ["en", "de"]
+    },
+    {
+      "@type": "VideoGame",
+      "name": "Palworld",
+      "playMode": "MultiPlayer",
+      "gamePlatform": ["PC", "Steam"],
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "EUR",
+        "availability": "https://schema.org/InStock",
+        "description": "Free Palworld dedicated server access"
+      },
+      "gameServer": [
+        {{ range $i, $s := .Servers }}{{ if $i }},{{ end }}{
+          "@type": "GameServer",
+          "name": "{{ $s.DisplayName }}",
+          "serverStatus": "{{ if eq $s.Status "exited" }}https://schema.org/OfflineTemporarily{{ else }}https://schema.org/Online{{ end }}"
+        }{{ end }}
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "{{ if eq $lang "de" }}Sind diese Palworld Server wirklich kostenlos?{{ else }}Are these Palworld servers really free?{{ end }}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "{{ if eq $lang "de" }}Ja, alle Server sind zu 100% kostenlos – keine Anmeldung, kein Abo, keine versteckten Kosten.{{ else }}Yes, all servers are 100% free – no signup, no subscription, no hidden costs.{{ end }}"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "{{ if eq $lang "de" }}Werden meine Daten gelöscht, wenn die Zeit abläuft?{{ else }}Is my world data deleted when the timer expires?{{ end }}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "{{ if eq $lang "de" }}Nein, niemals! Der Server wird nur pausiert. Die ganze Welt bleibt gespeichert und kann per Captcha jederzeit wieder gestartet werden.{{ else }}No, never! The server is only paused. The whole world stays saved and can be restarted anytime by solving a captcha.{{ end }}"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "{{ if eq $lang "de" }}Wie starte oder verlängere ich einen Server?{{ else }}How do I start or extend a server?{{ end }}",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "{{ if eq $lang "de" }}Ein kurzes Rätsel-Captcha lösen – der Server startet bzw. bekommt 12 Stunden extra. Mit Spielern online verlängert sich die Zeit automatisch.{{ else }}Solve a quick puzzle captcha – the server starts or gets 12 extra hours. With players online the time extends automatically.{{ end }}"
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 {{ end }}
 
 {{ define "scripts" }}

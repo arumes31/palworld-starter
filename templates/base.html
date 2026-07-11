@@ -3,7 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ block "title" . }}Palworld Server Control{{ end }}</title>
+    <title>{{ block "title" . }}Free Palworld Servers – Palworld Command Center{{ end }}</title>
+    <meta name="description" content="{{ if eq .Language "de" }}Kostenlose Palworld Server – tritt unseren 24/7 Dedicated Servern gratis und ohne Anmeldung bei. Server per Captcha starten, deine Weltdaten bleiben für immer erhalten.{{ else }}Free Palworld servers – join our 24/7 dedicated servers at no cost, no signup needed. Start a server by solving a quick captcha; your world data is never wiped.{{ end }}">
+    <meta name="keywords" content="free palworld server, palworld server, kostenlose palworld server, palworld dedicated server, palworld multiplayer server, join palworld server, palworld server kostenlos">
+    <meta name="theme-color" content="#0d1421">
+    <link rel="canonical" href="{{ .SiteURL }}">
+    <link rel="alternate" hreflang="en" href="{{ .SiteURL }}?lang=en">
+    <link rel="alternate" hreflang="de" href="{{ .SiteURL }}?lang=de">
+    <link rel="alternate" hreflang="x-default" href="{{ .SiteURL }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Palworld Command Center">
+    <meta property="og:title" content="{{ if eq .Language "de" }}Kostenlose Palworld Server – 24/7 & ohne Anmeldung{{ else }}Free Palworld Servers – 24/7, no signup{{ end }}">
+    <meta property="og:description" content="{{ if eq .Language "de" }}Gratis Palworld Dedicated Server. Per Captcha starten – Weltdaten werden niemals gelöscht.{{ else }}Free Palworld dedicated servers. Start with a captcha – world data is never wiped.{{ end }}">
+    <meta property="og:url" content="{{ .SiteURL }}">
+    <meta property="og:image" content="{{ .SiteURL }}static/og.png">
+    <meta property="og:locale" content="{{ if eq .Language "de" }}de_DE{{ else }}en_US{{ end }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ if eq .Language "de" }}Kostenlose Palworld Server – 24/7 & ohne Anmeldung{{ else }}Free Palworld Servers – 24/7, no signup{{ end }}">
+    <meta name="twitter:description" content="{{ if eq .Language "de" }}Gratis Palworld Dedicated Server. Per Captcha starten – Weltdaten werden niemals gelöscht.{{ else }}Free Palworld dedicated servers. Start with a captcha – world data is never wiped.{{ end }}">
+    <meta name="twitter:image" content="{{ .SiteURL }}static/og.png">
     <link rel="icon" href="/static/5.ico" type="image/x-icon">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
