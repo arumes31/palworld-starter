@@ -1,19 +1,23 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
-	"arumes31/palworld-starter/internal/discord"
-	"arumes31/palworld-starter/internal/game"
-	"arumes31/palworld-starter/internal/state"
-	"arumes31/palworld-starter/internal/web"
+	"github.com/arumes31/palworld-starter/internal/discord"
+	"github.com/arumes31/palworld-starter/internal/game"
+	"github.com/arumes31/palworld-starter/internal/state"
+	"github.com/arumes31/palworld-starter/internal/web"
 )
 
 // legacyTimeFilePath is the state file of the original single-server setup;
@@ -22,13 +26,6 @@ const legacyTimeFilePath = "gamecontroller-palworld-time_remaining.json"
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-}
-
-func websiteURL() string {
-	if u := os.Getenv("WEBSITE_URL"); u != "" {
-		return u
-	}
-	return "https://pal.wowcraft.pw/"
 }
 
 func envOr(key, fallback string) string {
@@ -69,7 +66,7 @@ func loadInstances() []*web.Instance {
 			ID:          "default",
 			DisplayName: envOr("DOCKER_CONTAINER_NAME", "Palworld Server"),
 			Address:     envOr("SERVER_ADDRESS", "80.66.59.216:8211"),
-			Game:        game.NewController(containerName, restHost, 8212),
+			Game:        game.NewController(containerName, restHost, 8212, os.Getenv("ADMIN_PASSWORD")),
 			State:       state.New(filepath.Join(stateDir, legacyTimeFilePath)),
 		}}
 	}
@@ -83,18 +80,23 @@ func loadInstances() []*web.Instance {
 		key := envKey(id)
 
 		restPort := 8212
-		if p, err := strconv.Atoi(os.Getenv("SERVER_" + key + "_RESTPORT")); err == nil && p > 0 {
+		if raw := os.Getenv("SERVER_" + key + "_RESTPORT"); raw != "" {
+			p, err := strconv.Atoi(raw)
+			if err != nil || p < 1 || p > 65535 {
+				log.Fatalf("SERVER_%s_RESTPORT is not a valid port: %q", key, raw)
+			}
 			restPort = p
 		}
 		containerName := envOr("SERVER_"+key+"_CONTAINER", id)
 		stateDir := envOr("STATE_DIR", "/hostmem")
 		restHost := envOr("SERVER_"+key+"_RESTHOST", "host.docker.internal")
+		adminPassword := envOr("SERVER_"+key+"_ADMIN_PASSWORD", os.Getenv("ADMIN_PASSWORD"))
 
 		instances = append(instances, &web.Instance{
 			ID:          id,
 			DisplayName: envOr("SERVER_"+key+"_NAME", id),
 			Address:     envOr("SERVER_"+key+"_ADDRESS", ""),
-			Game:        game.NewController(containerName, restHost, restPort),
+			Game:        game.NewController(containerName, restHost, restPort, adminPassword),
 			State:       state.New(filepath.Join(stateDir, fmt.Sprintf("gamecontroller-%s-time_remaining.json", id))),
 		})
 	}
@@ -104,120 +106,124 @@ func loadInstances() []*web.Instance {
 	return instances
 }
 
-// startTimerTicker counts the remaining time down, warns players in-game at
-// the 10/5/1 minute marks and stops the container on expiry.
-func startTimerTicker(ctrl *game.Controller, st *state.State) {
-	ticker := time.NewTicker(30 * time.Second)
+// runTicker runs fn on every tick until the context is cancelled.
+func runTicker(ctx context.Context, interval time.Duration, fn func()) {
 	go func() {
-		for range ticker.C {
-			var expired bool
-			warnMinutes := 0
-			st.UpdateTimeRemaining(func(current int) int {
-				if current <= 0 {
-					return 0
-				}
-				val := current - 30
-				if val < 0 {
-					val = 0
-				}
-				if val == 0 {
-					expired = true
-					return val
-				}
-				for _, threshold := range []int{600, 300, 60} {
-					if current > threshold && val <= threshold {
-						warnMinutes = threshold / 60
-						break
-					}
-				}
-				return val
-			})
-
-			if expired {
-				if ctrl.CachedStatus() == "running" {
-					log.Println("TIME EXPIRED → stopping container")
-					if err := ctrl.Stop(); err != nil {
-						log.Printf("Timer container shutdown failed: %v", err)
-					}
-				}
-				continue
-			}
-
-			if warnMinutes > 0 {
-				// Broadcast is player-gated, so this only reaches populated servers.
-				ctrl.Broadcast(fmt.Sprintf("Server stops in %d minute(s)! Add time at %s", warnMinutes, websiteURL()))
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				fn()
 			}
 		}
 	}()
+}
+
+// startTimerTicker counts the remaining time down, warns players in-game at
+// the 10/5/1 minute marks and stops the container on expiry.
+func startTimerTicker(ctx context.Context, ctrl *game.Controller, st *state.State) {
+	runTicker(ctx, 30*time.Second, func() {
+		var expired bool
+		warnMinutes := 0
+		st.UpdateTimeRemaining(func(current int) int {
+			if current <= 0 {
+				return 0
+			}
+			val := current - 30
+			if val < 0 {
+				val = 0
+			}
+			if val == 0 {
+				expired = true
+				return val
+			}
+			for _, threshold := range []int{600, 300, 60} {
+				if current > threshold && val <= threshold {
+					warnMinutes = threshold / 60
+					break
+				}
+			}
+			return val
+		})
+
+		if expired {
+			if ctrl.CachedStatus() == "running" {
+				log.Println("TIME EXPIRED → stopping container")
+				if err := ctrl.Stop(); err != nil {
+					log.Printf("Timer container shutdown failed: %v", err)
+				}
+			}
+			return
+		}
+
+		if warnMinutes > 0 {
+			// Broadcast is player-gated, so this only reaches populated servers.
+			ctrl.Broadcast(fmt.Sprintf("Server stops in %d minute(s)! Add time at %s", warnMinutes, game.WebsiteURL()))
+		}
+	})
 }
 
 // startPlayerExtendTicker grants +5 minutes for every 5-minute interval with
 // players online, capped at 48 hours.
-func startPlayerExtendTicker(ctrl *game.Controller, st *state.State) {
-	ticker := time.NewTicker(300 * time.Second)
-	go func() {
-		for range ticker.C {
-			// Players() only queries the REST API when the server is running
-			// and not auto-paused, so this never wakes a sleeping server.
-			count := len(ctrl.Players())
-			if count > 0 {
-				val := st.UpdateTimeRemaining(func(current int) int {
-					newVal := current + 300
-					if newVal > 172800 { // max 48h
-						return 172800
-					}
-					return newVal
-				})
-				log.Printf("Players online (%d) → +5 min (now %dh)", count, val/3600)
-			}
+func startPlayerExtendTicker(ctx context.Context, ctrl *game.Controller, st *state.State) {
+	runTicker(ctx, 300*time.Second, func() {
+		// Players() only queries the REST API when the server is running
+		// and not auto-paused, so this never wakes a sleeping server.
+		count := len(ctrl.Players())
+		if count > 0 {
+			val := st.UpdateTimeRemaining(func(current int) int {
+				newVal := current + 300
+				if newVal > 172800 { // max 48h
+					return 172800
+				}
+				return newVal
+			})
+			log.Printf("Players online (%d) → +5 min (now %dh)", count, val/3600)
 		}
-	}()
+	})
 }
 
 // startBroadcastScheduler sends the website URL in-game 10 minutes after the
-// server becomes populated, then every 3 hours while players stay online.
-// The cycle resets when the server empties.
-func startBroadcastScheduler(ctrl *game.Controller) {
-	ticker := time.NewTicker(60 * time.Second)
-	go func() {
-		var nextBroadcast time.Time
-		populated := false
-		for range ticker.C {
-			if len(ctrl.Players()) == 0 {
-				populated = false
-				continue
-			}
-			if !populated {
-				populated = true
-				nextBroadcast = time.Now().Add(10 * time.Minute)
-			}
-			if time.Now().After(nextBroadcast) {
-				ctrl.Broadcast("to start this server visit " + websiteURL())
-				nextBroadcast = time.Now().Add(3 * time.Hour)
-			}
+// server becomes populated, then every hour while players stay online. The
+// cycle resets when the server empties.
+func startBroadcastScheduler(ctx context.Context, ctrl *game.Controller) {
+	var nextBroadcast time.Time
+	populated := false
+	runTicker(ctx, 60*time.Second, func() {
+		if len(ctrl.Players()) == 0 {
+			populated = false
+			return
 		}
-	}()
+		if !populated {
+			populated = true
+			nextBroadcast = time.Now().Add(10 * time.Minute)
+		}
+		if time.Now().After(nextBroadcast) {
+			ctrl.Broadcast("to start this server visit " + game.WebsiteURL())
+			nextBroadcast = time.Now().Add(1 * time.Hour)
+		}
+	})
 }
 
-func startAutoBackupTicker(ctrl *game.Controller) {
-	ticker := time.NewTicker(15 * time.Minute)
-	go func() {
-		for range ticker.C {
-			ctrl.RunBackup()
-		}
-	}()
+func startAutoBackupTicker(ctx context.Context, ctrl *game.Controller) {
+	runTicker(ctx, 15*time.Minute, func() {
+		ctrl.RunBackup()
+	})
 }
 
-func startDiscordRefreshTicker() {
-	ticker := time.NewTicker(30 * time.Minute)
-	go func() {
-		for range ticker.C {
-			_ = discord.InviteURL()
-		}
-	}()
+func startDiscordRefreshTicker(ctx context.Context) {
+	runTicker(ctx, 30*time.Minute, func() {
+		_ = discord.InviteURL()
+	})
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	instances := loadInstances()
 	for _, inst := range instances {
 		log.Printf("Managing server %q (container %s, address %s)", inst.ID, inst.DisplayName, inst.Address)
@@ -228,17 +234,38 @@ func main() {
 
 	// Start one ticker set per server
 	for _, inst := range instances {
-		startTimerTicker(inst.Game, inst.State)
-		startPlayerExtendTicker(inst.Game, inst.State)
-		startBroadcastScheduler(inst.Game)
-		startAutoBackupTicker(inst.Game)
+		startTimerTicker(ctx, inst.Game, inst.State)
+		startPlayerExtendTicker(ctx, inst.Game, inst.State)
+		startBroadcastScheduler(ctx, inst.Game)
+		startAutoBackupTicker(ctx, inst.Game)
 	}
-	startDiscordRefreshTicker()
+	startDiscordRefreshTicker(ctx)
 
 	srv := web.New(instances, "templates", "./static")
 
+	// No WriteTimeout: /stop legitimately blocks for the graceful in-game
+	// shutdown countdown, which can exceed a minute.
+	httpSrv := &http.Server{
+		Addr:              "0.0.0.0:5000",
+		Handler:           srv.Routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+		log.Println("Shutdown signal received, stopping web server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Web server shutdown error: %v", err)
+		}
+	}()
+
 	log.Println("Palworld Free Server Controller started on :5000")
-	if err := http.ListenAndServe("0.0.0.0:5000", srv.Routes()); err != nil {
+	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("Server run error: %v", err)
 	}
+	log.Println("Shutdown complete")
 }

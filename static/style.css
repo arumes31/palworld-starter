@@ -86,6 +86,62 @@ body {
     overflow-wrap: anywhere;
 }
 
+.sys-version {
+    display: block;
+    font-family: var(--font-body);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--outline);
+    margin-top: 0.25rem;
+}
+
+/* ==== Question-mark info icon with tooltip ==== */
+.info-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 0.4rem;
+    border: 1px solid rgba(0, 240, 255, 0.35);
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--primary-container);
+    cursor: help;
+    vertical-align: middle;
+}
+
+.info-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 230px;
+    padding: 0.6rem 0.75rem;
+    background: rgba(13, 20, 33, 0.97);
+    border: 1px solid rgba(0, 240, 255, 0.35);
+    border-radius: 2px;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    line-height: 1.5;
+    color: var(--on-surface);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+    z-index: 20;
+}
+
+.info-icon:hover .info-tooltip,
+.info-icon:focus .info-tooltip {
+    opacity: 1;
+    visibility: visible;
+}
+
 /* ==== Layout ==== */
 .page-content {
     flex: 1;
@@ -93,7 +149,7 @@ body {
     align-items: center;
     justify-content: center;
     width: 100%;
-    max-width: 1200px;
+    max-width: 1500px;
     margin: 0 auto;
     padding: 32px 16px 120px;
     position: relative;
@@ -112,6 +168,7 @@ body {
 
 /* ==== Panel (Bento / Industrial module) ==== */
 .panel {
+    flex: 1 1 20rem;
     width: 100%;
     max-width: 28rem;
     background: rgba(23, 32, 48, 0.6);

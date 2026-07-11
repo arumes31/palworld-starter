@@ -4,18 +4,29 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
 var sessionKey []byte
 
+// The session key is derived from SESSION_KEY so cookies survive restarts;
+// without it a random key is used and every restart logs visitors out
+// mid-captcha.
 func init() {
+	if v := os.Getenv("SESSION_KEY"); v != "" {
+		sum := sha256.Sum256([]byte(v))
+		sessionKey = sum[:]
+		return
+	}
+	log.Println("SESSION_KEY not set - sessions will not survive restarts")
 	sessionKey = make([]byte, 32)
 	if _, err := rand.Read(sessionKey); err != nil {
 		log.Fatalf("Failed to generate random session key: %v", err)

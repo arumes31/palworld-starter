@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"arumes31/palworld-starter/internal/game"
-	"arumes31/palworld-starter/internal/state"
+	"github.com/arumes31/palworld-starter/internal/game"
+	"github.com/arumes31/palworld-starter/internal/state"
 )
 
 const testTemplateDir = "../../templates"
@@ -22,7 +22,7 @@ func newInstance(t *testing.T, id string) *Instance {
 		ID:          id,
 		DisplayName: "Test Server " + id,
 		Address:     "1.2.3.4:8211",
-		Game:        game.NewController("palworld_test_container_"+id, "localhost", 8212),
+		Game:        game.NewController("palworld_test_container_"+id, "localhost", 8212, ""),
 		State:       state.New(filepath.Join(t.TempDir(), id+"-time.json")),
 	}
 }
@@ -97,9 +97,10 @@ func TestCSRFValidation(t *testing.T) {
 	rrCorrect := httptest.NewRecorder()
 	srv.handleStart(rrCorrect, reqCorrect)
 
-	// Docker start fails or is skipped in tests, so the handler redirects (303).
-	if rrCorrect.Code != http.StatusSeeOther {
-		t.Errorf("Expected redirect (303), got %d", rrCorrect.Code)
+	// The test container can never be started, so the handler must surface
+	// the start failure as 502 instead of silently redirecting.
+	if rrCorrect.Code != http.StatusBadGateway {
+		t.Errorf("Expected 502 Bad Gateway for failed start, got %d", rrCorrect.Code)
 	}
 }
 
@@ -146,13 +147,20 @@ func TestHandlePlayers(t *testing.T) {
 func TestMultiServerResolution(t *testing.T) {
 	srv := New([]*Instance{newInstance(t, "alpha"), newInstance(t, "beta")}, testTemplateDir, "../../static")
 
+	// Unknown server ids must 404 instead of silently targeting server one.
+	reqUnknown := httptest.NewRequest("GET", "/api/players?srv=nope", nil)
+	rrUnknown := httptest.NewRecorder()
+	srv.handlePlayers(rrUnknown, reqUnknown)
+	if rrUnknown.Code != http.StatusNotFound {
+		t.Errorf("Expected 404 for unknown server id, got %d", rrUnknown.Code)
+	}
+
 	for _, tc := range []struct {
 		query string
 		want  string
 	}{
 		{"", "alpha"},           // default = first
 		{"?srv=beta", "beta"},   // explicit selection
-		{"?srv=nope", "alpha"},  // unknown falls back to first
 		{"?srv=alpha", "alpha"}, // explicit first
 	} {
 		req := httptest.NewRequest("GET", "/api/players"+tc.query, nil)

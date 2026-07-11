@@ -14,18 +14,18 @@ import (
 )
 
 var (
+	inviteMu        sync.Mutex
 	inviteCache     string
 	inviteCacheTime time.Time
-	inviteCacheMu   sync.Mutex
+	refreshing      bool
 )
 
-// InviteURL returns a cached invite link, creating a fresh one via the
-// Discord API at most once per hour. Falls back to DISCORD_FALLBACK_URL when
-// the bot is not configured or the API call fails.
+// InviteURL returns a cached invite link and never blocks on the Discord API:
+// a stale cache triggers a background refresh while the previous link (or the
+// fallback) is returned immediately, so a slow Discord API can not stall page
+// renders. Falls back to DISCORD_FALLBACK_URL when the bot is not configured
+// or no invite has been created yet.
 func InviteURL() string {
-	inviteCacheMu.Lock()
-	defer inviteCacheMu.Unlock()
-
 	botToken := os.Getenv("DISCORD_BOT_TOKEN")
 	guildID := os.Getenv("DISCORD_GUILD_ID")
 	channelID := os.Getenv("DISCORD_CHANNEL_ID")
@@ -38,9 +38,29 @@ func InviteURL() string {
 		return fallbackURL
 	}
 
-	if inviteCache != "" && time.Since(inviteCacheTime) < 1*time.Hour {
-		return inviteCache
+	inviteMu.Lock()
+	cached := inviteCache
+	if (cached == "" || time.Since(inviteCacheTime) >= time.Hour) && !refreshing {
+		refreshing = true
+		go refreshInvite(botToken, channelID)
 	}
+	inviteMu.Unlock()
+
+	if cached != "" {
+		return cached
+	}
+	return fallbackURL
+}
+
+// refreshInvite creates a fresh invite via the Discord API and stores it in
+// the cache. Runs in its own goroutine; only one refresh is in flight at a
+// time.
+func refreshInvite(botToken, channelID string) {
+	defer func() {
+		inviteMu.Lock()
+		refreshing = false
+		inviteMu.Unlock()
+	}()
 
 	url := fmt.Sprintf("https://discord.com/api/v10/channels/%s/invites", channelID)
 	payload := map[string]interface{}{
@@ -52,12 +72,12 @@ func InviteURL() string {
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		return fallbackURL
+		return
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(payloadBytes))
 	if err != nil {
-		return fallbackURL
+		return
 	}
 	req.Header.Set("Authorization", "Bot "+botToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -66,24 +86,27 @@ func InviteURL() string {
 	resp, err := hc.Do(req)
 	if err != nil {
 		log.Printf("Discord invite API error: %v", err)
-		return fallbackURL
+		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-		var result map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
-			if code, ok := result["code"].(string); ok && code != "" {
-				inviteURL := "https://discord.gg/" + code
-				inviteCache = inviteURL
-				inviteCacheTime = time.Now()
-				return inviteURL
-			}
-		}
-	} else {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("Discord invite API status %d: %s", resp.StatusCode, string(body))
+		return
 	}
 
-	return fallbackURL
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return
+	}
+	code, ok := result["code"].(string)
+	if !ok || code == "" {
+		return
+	}
+
+	inviteMu.Lock()
+	inviteCache = "https://discord.gg/" + code
+	inviteCacheTime = time.Now()
+	inviteMu.Unlock()
 }
