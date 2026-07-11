@@ -77,14 +77,14 @@ func (s *State) save() {
 	_ = os.MkdirAll(dir, 0755)
 
 	tmpPath := s.filePath + ".tmp"
-	file, err := os.Create(tmpPath)
+	file, err := os.Create(tmpPath) // #nosec G304 -- path comes from server config, not user input
 	if err != nil {
 		log.Printf("Failed to save time file: %v", err)
 		return
 	}
 	if err := json.NewEncoder(file).Encode(content); err != nil {
 		log.Printf("Failed to encode time file: %v", err)
-		file.Close()
+		_ = file.Close()
 		return
 	}
 	if err := file.Close(); err != nil {
