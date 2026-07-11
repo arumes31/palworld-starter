@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"arumes31/palworld-starter/internal/captcha"
 	"arumes31/palworld-starter/internal/discord"
@@ -114,14 +115,18 @@ type PageContext struct {
 	ServerAddress       string
 	BootEstimateSeconds int
 	Servers             []ServerPanel
+	AppVersion          string
 }
+
+var AppVersion = strconv.FormatInt(time.Now().Unix(), 10)
 
 func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx PageContext) {
 	if ctx.Language == "" {
 		ctx.Language = "de"
 	}
 
-	t, err := template.New("").Funcs(template.FuncMap{
+	ctx.AppVersion = AppVersion
+	t, err := template.New("base.html").Funcs(template.FuncMap{
 		"title": func(s string) string {
 			if s == "" {
 				return ""
@@ -138,6 +143,9 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx Page
 				res[i] = i
 			}
 			return res
+		},
+		"mod": func(i, j int) int {
+			return i % j
 		},
 	}).ParseFiles(
 		filepath.Join(s.templateDir, "base.html"),

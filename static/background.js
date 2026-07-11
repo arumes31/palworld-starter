@@ -13,35 +13,270 @@
     function rnd(a, b) { return a + Math.random() * (b - a); }
 
     // ==================== PIXEL SPRITES ====================
-    const PALETTES = {
-        sheep: { o: '#e8ecf4', d: '#9aa4c0', e: '#1a2238', p: '#f0b6c8' },
-        fox:   { o: '#f2a444', d: '#b06a1e', e: '#1a2238', p: '#ffe3b0' },
-        grem:  { o: '#59d8e6', d: '#2e8fa8', e: '#0c1430', p: '#c9f5fb' },
-        shade: { o: '#8f7bd8', d: '#5a4a99', e: '#120a2e', p: '#d8cdfa' }
+        
+    const CREATURES = {
+        sheep: {
+            behavior: 'wander',
+            pal: { o: '#e8ecf4', d: '#9aa4c0', e: '#1a2238', p: '#f0b6c8' },
+            frames: [
+                [
+                    '..oooooo..',
+                    '.oooooooo.',
+                    'ooeooooeoo',
+                    'oooooooooo',
+                    'opoooooopo',
+                    '.oooooooo.',
+                    '..d..d.d..',
+                    '..d....d..'
+                ],
+                [
+                    '..oooooo..',
+                    '.oooooooo.',
+                    'ooeooooeoo',
+                    'oooooooooo',
+                    'opoooooopo',
+                    '.oooooooo.',
+                    '.d..d..d..',
+                    '....d...d.'
+                ]
+            ]
+        },
+        fox: {
+            behavior: 'dart',
+            pal: { o: '#f2a444', d: '#b06a1e', e: '#1a2238', p: '#ffe3b0' },
+            frames: [
+                [
+                    'o.ooooo...',
+                    'oo.oooo...',
+                    'oooeoeoo..',
+                    'ooooooooo.',
+                    'oooooooooo',
+                    '.ooooooo..',
+                    '..d...d...',
+                    '..d...d...'
+                ],
+                [
+                    'o.ooooo...',
+                    'oo.oooo...',
+                    'oooeoeoo..',
+                    'ooooooooo.',
+                    'oooooooooo',
+                    '.ooooooo..',
+                    '.d...d....',
+                    '......d...'
+                ]
+            ]
+        },
+        grem: {
+            behavior: 'pace',
+            pal: { o: '#59d8e6', d: '#2e8fa8', e: '#0c1430', p: '#c9f5fb' },
+            frames: [
+                [
+                    'o......o..',
+                    'oo....oo..',
+                    'oooooooo..',
+                    'ooeooeoo..',
+                    '.oooooo...',
+                    '..dddd....',
+                    '..d..d....',
+                    '..d..d....'
+                ],
+                [
+                    '.o....o...',
+                    '.oo..oo...',
+                    '.oooooo...',
+                    '.ooeoeo...',
+                    '..oooo....',
+                    '...dd.....',
+                    '..d..d....',
+                    '..d..d....'
+                ]
+            ]
+        },
+        shade: {
+            behavior: 'float',
+            pal: { o: '#8f7bd8', d: '#5a4a99', e: '#120a2e', p: '#d8cdfa' },
+            frames: [
+                [
+                    '...oooo...',
+                    '..oooooo..',
+                    '.ooeooeoo.',
+                    '.oooooooo.',
+                    '.oooooooo.',
+                    '..oooooo..',
+                    '...o..o...',
+                    '...o..o...'
+                ],
+                [
+                    '...oooo...',
+                    '..oooooo..',
+                    '.ooeooeoo.',
+                    '.oooooooo.',
+                    '.oooooooo.',
+                    '..oooooo..',
+                    '..o....o..',
+                    '..........'
+                ]
+            ]
+        },
+        boar: {
+            behavior: 'charge',
+            pal: { o: '#8b5a2b', d: '#5c3a21', e: '#1a1100', p: '#d2b48c' },
+            frames: [
+                [
+                    '..........',
+                    '...oooo...',
+                    '.ooooooo..',
+                    'poeooooeoo',
+                    'oooooooooo',
+                    '.oooooooo.',
+                    '..d....d..',
+                    '..d....d..'
+                ],
+                [
+                    '..........',
+                    '...oooo...',
+                    '.ooooooo..',
+                    'poeooooeoo',
+                    'oooooooooo',
+                    '.oooooooo.',
+                    '.d....d...',
+                    '.......d..'
+                ]
+            ]
+        },
+        peng: {
+            behavior: 'waddle',
+            pal: { o: '#3b82f6', d: '#1d4ed8', e: '#0f172a', p: '#f8fafc' },
+            frames: [
+                [
+                    '...oooo...',
+                    '..oooooo..',
+                    '.ooeooeoo.',
+                    '.oopppoo..',
+                    '.oopppoo..',
+                    '.oooppoo..',
+                    '...d..d...',
+                    '...d..d...'
+                ],
+                [
+                    '...oooo...',
+                    '..oooooo..',
+                    '.ooeooeoo.',
+                    '.oopppoo..',
+                    '.oopppoo..',
+                    '.oooppoo..',
+                    '..d..d....',
+                    '......d...'
+                ]
+            ]
+        },
+        dragon: {
+            behavior: 'soar',
+            pal: { o: '#ef4444', d: '#991b1b', e: '#fef08a', p: '#fca5a5' },
+            frames: [
+                [
+                    '.p....p...',
+                    '.oooooo...',
+                    'ooeooeoo..',
+                    'oooooooooo',
+                    '.oooooooo.',
+                    '..ooooo...',
+                    '..d...d...',
+                    '..d...d...'
+                ],
+                [
+                    '..p..p....',
+                    '..oooo....',
+                    'poeooeoo..',
+                    'oooooooooo',
+                    '.oooooooo.',
+                    '..ooooo...',
+                    '.d...d....',
+                    '......d...'
+                ]
+            ]
+        },
+        frog: {
+            behavior: 'hop',
+            pal: { o: '#22c55e', d: '#15803d', e: '#022c22', p: '#86efac' },
+            frames: [
+                [
+                    '..........',
+                    '..........',
+                    '..oo..oo..',
+                    '.ooeooeeo.',
+                    '.oooooooo.',
+                    'oooooooooo',
+                    'd.d....d.d',
+                    '..........'
+                ],
+                [
+                    '..........',
+                    '..oo..oo..',
+                    '.ooeooeeo.',
+                    '.oooooooo.',
+                    'oooooooooo',
+                    'd.d....d.d',
+                    'd........d',
+                    '..........'
+                ]
+            ]
+        },
+        cat: {
+            behavior: 'dart',
+            pal: { o: '#52525b', d: '#27272a', e: '#fde047', p: '#a1a1aa' },
+            frames: [
+                [
+                    '.o....o...',
+                    '.oooooo...',
+                    '.ooeooeo..',
+                    '..oooooo.o',
+                    '..oooooo.o',
+                    '...oooo..o',
+                    '...d..d...',
+                    '...d..d...'
+                ],
+                [
+                    '..o...o...',
+                    '..ooooo...',
+                    '.ooeooeo.o',
+                    '..oooooo.o',
+                    '..oooooo.o',
+                    '...oooo...',
+                    '..d..d....',
+                    '......d...'
+                ]
+            ]
+        },
+        stag: {
+            behavior: 'pace',
+            pal: { o: '#d6d3d1', d: '#78716c', e: '#1c1917', p: '#fafaf9' },
+            frames: [
+                [
+                    'p.p..p.p..',
+                    '.pp..pp...',
+                    '..oooo....',
+                    '.ooeoeo...',
+                    '..oooo....',
+                    '..oooo....',
+                    '...d..d...',
+                    '...d..d...'
+                ],
+                [
+                    'p.p..p.p..',
+                    '.pp..pp...',
+                    '..oooo....',
+                    '.ooeoeo...',
+                    '..oooo....',
+                    '..oooo....',
+                    '..d..d....',
+                    '.......d..'
+                ]
+            ]
+        }
     };
-
-    const MONSTER_FRAMES = [
-        [
-            '..oooooo..',
-            '.oooooooo.',
-            'ooeooooeoo',
-            'oooooooooo',
-            'opoooooopo',
-            '.oooooooo.',
-            '..d..d.d..',
-            '..d....d..'
-        ],
-        [
-            '..oooooo..',
-            '.oooooooo.',
-            'ooeooooeoo',
-            'oooooooooo',
-            'opoooooopo',
-            '.oooooooo.',
-            '.d..d..d..',
-            '....d...d.'
-        ]
-    ];
+    const species = Object.keys(CREATURES);
 
     function drawSprite(frame, palette, x, y, px, flip) {
         const h = frame.length, w = frame[0].length;
@@ -149,8 +384,50 @@
     }
 
     // ==================== ENTITIES ====================
-    const species = Object.keys(PALETTES);
-    const monsters = [];
+        const PLAYER_FRAMES = [
+        [
+            '...hhh...',
+            '..hhhhh..',
+            '.ppEppp..',
+            '.sssssss.',
+            '.sssssss.',
+            '..pp.pp..',
+            '..ll.ll..',
+            '..l...l..'
+        ],
+        [
+            '...hhh...',
+            '..hhhhh..',
+            '.ppEppp..',
+            '..sssss..',
+            '..sssss..',
+            '...ppp...',
+            '...lll...',
+            '...l.l...'
+        ],
+        [
+            '...hhh...',
+            '..hhhhh..',
+            '.ppEppp.p',
+            '..ssssspp',
+            '..sssss..',
+            '...ppp...',
+            '..l...l..',
+            '..l...l..'
+        ]
+    ];
+
+    const player = {
+        xNorm: 0.5,
+        depth: 0.5,
+        dir: 1,
+        speed: 0.08,
+        phase: 0,
+        state: 'roam',
+        timer: 0
+    };
+
+        const monsters = [];
     const balls = [];
     const particles = [];
 
@@ -167,20 +444,36 @@
             pop: initial ? 1 : 0
         });
     }
-    for (let i = 0; i < 9; i++) spawnMonster(true);
+    for (let i = 0; i < 14; i++) spawnMonster(true);
 
     function throwBall() {
         const free = monsters.filter(m => m.state === 'roam' && m.pop >= 1);
         if (!free.length) return;
-        const target = free[Math.floor(Math.random() * free.length)];
+        let target = free[0];
+        let minDist = Math.abs(target.xNorm - player.xNorm);
+        for (let i = 1; i < free.length; i++) {
+            const dist = Math.abs(free[i].xNorm - player.xNorm);
+            if (dist < minDist) {
+                minDist = dist;
+                target = free[i];
+            }
+        }
         target.state = 'targeted';
-        const fromLeft = Math.random() < 0.5;
+
+        player.dir = target.xNorm > player.xNorm ? 1 : -1;
+        player.state = 'throw';
+        player.timer = 0.8;
+
+        const pp = project(player.xNorm, player.depth);
+        const px = pp.x;
+        const py = pp.y - 38 * pp.scale; // Start from hand height
+
         balls.push({
             target: target,
             t: 0,
-            duration: rnd(0.9, 1.3),
-            startX: fromLeft ? -40 : W + 40,
-            startY: H * rnd(0.7, 0.95),
+            duration: rnd(0.7, 1.0),
+            startX: px,
+            startY: py,
             spin: 0,
             state: 'flying',
             timer: 0
@@ -337,29 +630,116 @@
         const px = Math.max(2, Math.round(7 * p.scale)) * m.shrink * Math.min(1, m.pop);
         if (px <= 0.1) return;
         const bob = Math.sin(time * 6 + m.phase) * 3 * p.scale;
-        const frame = MONSTER_FRAMES[Math.floor((time * 6 + m.phase)) % 2];
+        
+        const creature = CREATURES[m.kind];
+        const frame = creature.frames[Math.floor((time * 6 + m.phase)) % 2];
         ctx.fillStyle = 'rgba(0,0,0,0.35)';
         ctx.beginPath();
         ctx.ellipse(p.x, p.y + 2, 18 * p.scale * m.shrink, 4 * p.scale * m.shrink, 0, 0, Math.PI * 2);
         ctx.fill();
-        drawSprite(frame, PALETTES[m.kind], p.x, p.y + bob, px, m.dir < 0);
+        drawSprite(frame, creature.pal, p.x, p.y + bob, px, m.dir < 0);
+    }
+
+    function drawPlayer(time) {
+        const p = project(player.xNorm, player.depth);
+        const px = Math.max(2, Math.round(7 * p.scale));
+        if (px <= 0.1) return;
+        
+        let bob = 0;
+        let frameIdx = 0;
+        if (player.state === 'roam') {
+            bob = Math.sin(time * 8 + player.phase) * 3 * p.scale;
+            frameIdx = Math.floor(time * 8 + player.phase) % 2;
+        } else if (player.state === 'throw') {
+            frameIdx = 2; // Throwing animation frame
+        }
+        
+        const frame = PLAYER_FRAMES[frameIdx];
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + 2, 16 * p.scale, 4 * p.scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        const pal = {
+            'h': '#0f172a',
+            'E': '#ffffff',
+            's': '#2563eb',
+            'l': '#451a03',
+            'p': '#fcd34d'
+        };
+        drawSprite(frame, pal, p.x, p.y + bob, px, player.dir < 0);
     }
 
     // ==================== SIMULATION ====================
     let nextThrow = 1.5;
 
     function step(dt, time) {
+        if (player.state === 'roam') {
+            player.xNorm += player.dir * player.speed * dt;
+            player.depth += Math.sin(time * 0.5 + player.phase) * 0.02 * dt;
+            player.depth = Math.max(0.18, Math.min(0.96, player.depth));
+            if (player.xNorm < 0.05 || player.xNorm > 0.95) {
+                player.dir *= -1;
+                player.xNorm = Math.max(0.05, Math.min(0.95, player.xNorm));
+            }
+            if (Math.random() < dt * 0.2) player.dir *= -1;
+        } else if (player.state === 'throw') {
+            player.timer -= dt;
+            if (player.timer <= 0) player.state = 'roam';
+        }
+
         for (const m of monsters) {
             if (m.pop < 1) m.pop = Math.min(1, m.pop + dt * 2);
             if (m.state === 'roam' || m.state === 'targeted') {
-                m.xNorm += m.dir * m.speed * dt;
-                m.depth += Math.sin(time * 0.4 + m.phase) * 0.01 * dt;
+                const b = CREATURES[m.kind].behavior;
+                
+                let dx = m.dir * m.speed * dt;
+                let dy = 0;
+                
+                if (b === 'wander') {
+                    dy = Math.sin(time * 0.4 + m.phase) * 0.01 * dt;
+                    if (Math.random() < dt * 0.5) m.dir *= -1;
+                } else if (b === 'dart') {
+                    // Stop and go
+                    if (Math.sin(time * 3 + m.phase) > 0) dx = 0;
+                    else dx *= 2;
+                    dy = Math.sin(time * 0.2 + m.phase) * 0.005 * dt;
+                } else if (b === 'float') {
+                    // Moves slowly, bobs up and down a lot in depth
+                    dx *= 0.5;
+                    dy = Math.sin(time * 0.8 + m.phase) * 0.03 * dt;
+                } else if (b === 'charge') {
+                    // Paces slowly, sometimes charges fast
+                    if (Math.sin(time * 1.5 + m.phase) > 0.8) dx *= 3.5;
+                    else dx *= 0.5;
+                    dy = Math.cos(time * 0.3 + m.phase) * 0.01 * dt;
+                } else if (b === 'waddle') {
+                    // Very slow, high bob
+                    dx *= 0.4;
+                    dy = Math.sin(time * 2 + m.phase) * 0.015 * dt;
+                } else if (b === 'soar') {
+                    // Very fast, long sweeping arcs in depth
+                    dx *= 1.5;
+                    dy = Math.cos(time * 0.5 + m.phase) * 0.04 * dt;
+                } else if (b === 'hop') {
+                    // Stop completely, then jump forward fast
+                    if (Math.sin(time * 4 + m.phase) > 0.5) dx *= 2.5;
+                    else dx = 0;
+                    dy = Math.cos(time * 0.4 + m.phase) * 0.01 * dt;
+                } else {
+                    // Default pace
+                    dy = Math.sin(time * 0.4 + m.phase) * 0.01 * dt;
+                    if (Math.random() < dt * 0.2) m.dir *= -1;
+                }
+                
+                m.xNorm += dx;
+                m.depth += dy;
+                
                 m.depth = Math.max(0.18, Math.min(0.96, m.depth));
                 if (m.xNorm < 0.04 || m.xNorm > 0.96) {
                     m.dir *= -1;
                     m.xNorm = Math.max(0.04, Math.min(0.96, m.xNorm));
                 }
-                if (Math.random() < dt * 0.2) m.dir *= -1;
             }
         }
 
@@ -426,9 +806,15 @@
         drawGround(time);
         drawFireflies(time);
 
-        const sorted = monsters.slice().sort((a, b) => a.depth - b.depth);
+        const sorted = monsters.slice();
+        sorted.push({ isPlayer: true, depth: player.depth });
+        sorted.sort((a, b) => a.depth - b.depth);
         for (const m of sorted) {
-            if (m.state !== 'gone') drawMonster(m, time);
+            if (m.isPlayer) {
+                drawPlayer(time);
+            } else if (m.state !== 'gone') {
+                drawMonster(m, time);
+            }
         }
 
         for (const b of balls) {

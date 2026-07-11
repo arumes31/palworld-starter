@@ -6,3 +6,18 @@ results.sarif
 graphify-out/
 
 .claudeignore
+
+# Temporary build folders
+temp_build/
+temp/
+
+# One-off patch scripts
+patch_*.js
+
+# Local database / Docker volumes
+data/
+
+# OS / IDE generated files
+.DS_Store
+.vscode/
+.idea/
