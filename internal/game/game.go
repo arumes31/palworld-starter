@@ -38,6 +38,7 @@ type Controller struct {
 	statusMu    sync.Mutex
 	statusCache string
 	statusTime  time.Time
+	adminPassword string
 
 	playersMu    sync.Mutex
 	playersCache []PlayerInfo
@@ -77,6 +78,13 @@ func (c *Controller) Status() string {
 		log.Printf("Docker inspect error: %v", err)
 		return "unknown"
 	}
+
+	for _, env := range inspect.Config.Env {
+		if strings.HasPrefix(env, "ADMIN_PASSWORD=") {
+			c.adminPassword = strings.SplitN(env, "=", 2)[1]
+		}
+	}
+
 	return inspect.State.Status
 }
 
@@ -156,14 +164,21 @@ func (c *Controller) IsPaused() bool {
 }
 
 func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
+	req, _ := http.NewRequest("GET", c.playersEndpoint, nil)
+	if c.adminPassword != "" {
+		req.SetBasicAuth("admin", c.adminPassword)
+	}
+
 	hc := &http.Client{Timeout: 4 * time.Second}
-	resp, err := hc.Get(c.playersEndpoint)
+	resp, err := hc.Do(req)
 	if err != nil {
+		log.Printf("[%s] fetchPlayers error: %v", c.containerName, err)
 		return nil, false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[%s] fetchPlayers HTTP %d", c.containerName, resp.StatusCode)
 		return nil, false
 	}
 
