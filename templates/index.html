@@ -19,9 +19,14 @@
         </div>
         <div class="info-row">
             <span class="label">{{ if eq .Language "de" }}Server-IP:{{ else }}Server IP:{{ end }}</span>
-            <span id="server-ip" class="copyable value">80.66.59.216:8211</span>
+            <span id="server-ip" class="copyable value">{{ .ServerAddress }}</span>
             <span id="copy-toast" class="toast">{{ if eq .Language "de" }}Kopiert!{{ else }}Copied!{{ end }}</span>
         </div>
+        <div class="info-row">
+            <span class="label">{{ if eq .Language "de" }}Spieler online:{{ else }}Players online:{{ end }}</span>
+            <span id="player-count" class="value">–</span>
+        </div>
+        <ul id="player-list" class="player-list"></ul>
         <div class="actions">
             {{ if eq .Status "running" }}
                 <a href="/captcha" id="add-time-link" class="btn-primary">+12 {{ if eq .Language "de" }}Stunden{{ else }}Hours{{ end }}</a>
@@ -31,7 +36,31 @@
                 </a>
             {{ end }}
         </div>
+        {{ if eq .Status "running" }}
+        <div class="actions">
+            <a href="steam://connect/{{ .ServerAddress }}" class="btn-steam">
+                {{ if eq .Language "de" }}Über Steam verbinden{{ else }}Connect via Steam{{ end }}
+            </a>
+        </div>
+        {{ end }}
     </div>
+
+    <details class="join-help">
+        <summary>{{ if eq .Language "de" }}Wie trete ich bei?{{ else }}How do I join?{{ end }}</summary>
+        <ol>
+            {{ if eq .Language "de" }}
+            <li>Falls der Server gestoppt ist, starte ihn oben (kurzes Rätsel lösen).</li>
+            <li>Starte Palworld und wähle im Hauptmenü <strong>„Mehrspielerspiel beitreten“</strong>.</li>
+            <li>Gib unten in der Adressleiste <code>{{ .ServerAddress }}</code> ein und klicke <strong>Verbinden</strong>.</li>
+            <li>Alternativ: Nutze den Button „Über Steam verbinden“, wenn der Server läuft.</li>
+            {{ else }}
+            <li>If the server is stopped, start it above (solve the quick puzzle).</li>
+            <li>Launch Palworld and choose <strong>“Join Multiplayer Game”</strong> in the main menu.</li>
+            <li>Enter <code>{{ .ServerAddress }}</code> in the address bar at the bottom and press <strong>Connect</strong>.</li>
+            <li>Alternatively use the “Connect via Steam” button while the server is running.</li>
+            {{ end }}
+        </ol>
+    </details>
 </div>
 {{ end }}
 
@@ -75,10 +104,30 @@
         });
     }
 
+    async function refreshPlayers() {
+        try {
+            const resp = await fetch('/api/players');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            document.getElementById('player-count').textContent = data.count;
+            const list = document.getElementById('player-list');
+            list.innerHTML = '';
+            data.players.forEach(p => {
+                const li = document.createElement('li');
+                li.textContent = p.name + (p.level > 0 ? ' (Lv. ' + p.level + ')' : '');
+                list.appendChild(li);
+            });
+        } catch (e) { /* server unreachable – keep last shown state */ }
+    }
+
     function initUI() {
         if (status === 'running') {
             document.querySelectorAll('.info-row').forEach(row => row.style.display = 'flex');
             startCountdown();
+            refreshPlayers();
+            setInterval(refreshPlayers, 30000);
+        } else {
+            document.getElementById('player-count').textContent = '0';
         }
     }
 

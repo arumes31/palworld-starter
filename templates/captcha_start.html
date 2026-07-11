@@ -17,7 +17,8 @@
         <input type="hidden" name="csrf_token" value="{{ .CsrfToken }}">
         <input type="hidden" name="origin" value="start_container">
         <div class="input-container">
-            <p class="question" oncopy="return false;" oncut="return false;" ondragstart="return false;" onselectstart="return false;" style="user-select: none;">{{ .Question }}</p>
+            <p class="question" oncopy="return false;" oncut="return false;" onselectstart="return false;" style="user-select: none;">{{ range .QuestionSegments }}{{ if eq .Num 0 }}{{ .Text }}{{ else }}<span class="scratch-wrap"><img class="scratch-img" src="/captcha/num?i={{ .Num }}" alt="???" draggable="false"><canvas class="scratch-cover"></canvas></span>{{ end }}{{ end }}</p>
+            <p class="scratch-hint">{{ if eq .Language "de" }}Rubbel die grauen Felder frei, um die Zahlen zu sehen.{{ else }}Scratch the grey boxes free to reveal the numbers.{{ end }}</p>
             <select name="captcha_answer" id="captcha_answer" required class="captcha-select">
                 <option value="" disabled selected>{{ if eq .Language "de" }}Wähle deine Antwort{{ else }}Select your answer{{ end }}</option>
                 {{ range $i := range1000 }}
@@ -34,6 +35,7 @@
 {{ end }}
 
 {{ define "scripts" }}
+<script src="/static/scratch.js"></script>
 <script>
     function changeLanguage(lang) {
         const url = new URL(window.location);

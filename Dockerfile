@@ -9,9 +9,10 @@ RUN go mod download
 
 # Copy source code
 COPY main.go ./
+COPY internal ./internal
 
 # Build the application as a statically linked binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter .
 
 # Final stage
 FROM alpine:3.22

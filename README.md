@@ -18,17 +18,17 @@ A lightweight web application that controls and manages a Palworld server runnin
 
 ### Run Locally
 ```bash
-go run main.go
+go run .
 ```
 
 ### Run Tests
 ```bash
-go test -v
+go test -v ./...
 ```
 
 ### Build Binary
 ```bash
-go build -o palworld-starter main.go
+go build -o palworld-starter .
 ```
 
 ---
@@ -45,6 +45,8 @@ Set the following environment variables:
 | `DISCORD_GUILD_ID` | Guild ID of your Discord Server | *Optional* |
 | `DISCORD_CHANNEL_ID` | Channel ID for generating invites | *Optional* |
 | `DISCORD_FALLBACK_URL` | Fallback invitation link | `https://discord.gg/XXXXXINVITENOTFOUNDXXXXXX` |
+| `SERVER_ADDRESS` | Public game address shown on the page (IP:port) | `80.66.59.216:8211` |
+| `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://pal.wowcraft.pw/` |
 
 ---
 
