@@ -118,7 +118,7 @@ type PageContext struct {
 
 func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx PageContext) {
 	if ctx.Language == "" {
-		ctx.Language = "en"
+		ctx.Language = "de"
 	}
 
 	t, err := template.New("").Funcs(template.FuncMap{
@@ -130,7 +130,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx Page
 		},
 		"tojson": func(v interface{}) template.JS {
 			b, _ := json.Marshal(v)
-			return template.JS(b) //nolint:gosec // marshaled from typed server-side data, never raw user input
+			return template.JS(b) // #nosec G203 //nolint:gosec // marshaled from typed server-side data, never raw user input
 		},
 		"range1000": func() []int {
 			res := make([]int, 1000)

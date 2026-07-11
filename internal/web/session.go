@@ -114,8 +114,8 @@ func getPreferredLanguage(r *http.Request) string {
 		return l
 	}
 	accept := r.Header.Get("Accept-Language")
-	if strings.Contains(accept, "de") {
-		return "de"
+	if strings.Contains(accept, "en") {
+		return "en"
 	}
-	return "en"
+	return "de"
 }

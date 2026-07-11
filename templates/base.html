@@ -29,8 +29,8 @@
     <footer class="site-footer">
         <div class="footer-brand">© 2026 PALWORLD-COMMAND-CENTER</div>
         <nav class="footer-nav lang-switch">
-            <a href="?lang=de" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
-            <a href="?lang=en" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
+            <a href="?lang=de{{ if .ServerID }}&server={{ .ServerID }}{{ end }}" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
+            <a href="?lang=en{{ if .ServerID }}&server={{ .ServerID }}{{ end }}" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
         </nav>
     </footer>
 

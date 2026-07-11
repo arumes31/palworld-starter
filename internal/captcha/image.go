@@ -54,7 +54,7 @@ func RenderNumberPNG(n int) ([]byte, error) {
 
 	// Sprinkle noise so the image is not trivially OCR-able.
 	for i := 0; i < w*h/40; i++ {
-		g := uint8(120 + mathrand.Intn(100))
+		g := uint8(120 + mathrand.Intn(100)) // #nosec G115
 		img.SetRGBA(mathrand.Intn(w), mathrand.Intn(h), color.RGBA{R: g, G: g, B: g, A: 255})
 	}
 

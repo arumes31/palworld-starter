@@ -51,7 +51,7 @@ func (s *State) SetTimeRemaining(val int) {
 
 func load(filePath string) int {
 	if _, err := os.Stat(filePath); err == nil {
-		file, err := os.Open(filePath)
+		file, err := os.Open(filePath) // #nosec G304
 		if err == nil {
 			defer file.Close()
 			var content timeFileContent
