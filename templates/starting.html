@@ -1,0 +1,66 @@
+{{ define "title" }}{{ .DockerContainerName }} – {{ if eq .Language "de" }}Startet…{{ else }}Starting…{{ end }}{{ end }}
+
+{{ define "content" }}
+<div class="glass-card">
+    <div class="status-header">
+        <h2 class="status-title">
+            {{ .DockerContainerName }}
+            <span class="status-badge starting">{{ if eq .Language "de" }}Startet…{{ else }}Starting…{{ end }}</span>
+        </h2>
+    </div>
+
+    <div class="status-block">
+        <div class="boot-spinner"></div>
+        <p class="boot-text">
+            {{ if eq .Language "de" }}Der Server fährt hoch. Diese Seite aktualisiert sich automatisch, sobald man beitreten kann.{{ else }}The server is booting. This page refreshes automatically once it is joinable.{{ end }}
+        </p>
+        <div class="boot-progress"><div id="boot-bar" class="boot-bar"></div></div>
+        <p id="boot-eta" class="boot-eta"></p>
+        <p class="boot-note">
+            {{ if eq .Language "de" }}Das dauert normalerweise etwa eine Minute.{{ else }}This usually takes about a minute.{{ end }}
+        </p>
+    </div>
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+    const bootEstimate = {{ tojson .BootEstimateSeconds }};
+    const lang = "{{ .Language }}";
+    let elapsed = 0;
+    let polls = 0;
+
+    function tick() {
+        elapsed++;
+        const pct = Math.min((elapsed / bootEstimate) * 100, 97);
+        document.getElementById('boot-bar').style.width = pct + '%';
+        const left = bootEstimate - elapsed;
+        const eta = document.getElementById('boot-eta');
+        if (left > 0) {
+            eta.textContent = lang === 'de' ? `noch ca. ${left}s` : `~${left}s remaining`;
+        } else {
+            eta.textContent = lang === 'de' ? 'gleich geschafft…' : 'almost ready…';
+        }
+    }
+
+    async function poll() {
+        polls++;
+        try {
+            const resp = await fetch('/api/players');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data.joinable) {
+                window.location.href = '/';
+            } else if (data.status !== 'running' && polls > 3) {
+                // Container never came up (or stopped again) – show the normal page.
+                window.location.href = '/';
+            }
+        } catch (e) { /* transient – keep polling */ }
+    }
+
+    tick();
+    setInterval(tick, 1000);
+    poll();
+    setInterval(poll, 4000);
+</script>
+{{ end }}

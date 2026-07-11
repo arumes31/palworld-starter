@@ -127,6 +127,159 @@ body { min-height: 100vh; display: flex; flex-direction: column; color: #e0f2ff;
     font-size: 1.15rem;
 }
 
+/* ==== Player List ==== */
+.player-list {
+    list-style: none;
+    text-align: left;
+    margin: 0;
+    padding: 0;
+}
+.player-list li {
+    padding: 0.45rem 0.9rem;
+    font-size: 1rem;
+    color: #e0f2ff;
+    font-family: 'Courier New', monospace;
+    border-bottom: 1px dashed rgba(100,150,255,0.15);
+}
+.player-list li:last-child { border-bottom: none; }
+.player-list li::before {
+    content: "●";
+    color: #a8e6b8;
+    margin-right: 0.6rem;
+    font-size: 0.7rem;
+    vertical-align: middle;
+}
+
+/* ==== Scratch-Card Captcha ==== */
+.scratch-wrap {
+    display: inline-block;
+    position: relative;
+    vertical-align: middle;
+    margin: 0 4px;
+    line-height: 0;
+}
+.scratch-img {
+    display: block;
+    height: 44px;
+    width: auto;
+    border-radius: 8px;
+    border: 1px solid rgba(100,150,255,0.35);
+}
+.scratch-cover {
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: none;
+    transition: opacity 0.4s ease;
+}
+.scratch-cover.scratched {
+    opacity: 0;
+    pointer-events: none;
+}
+.scratch-hint {
+    font-size: 0.85rem;
+    color: #a0c4ff;
+    margin: 0.5rem 0 1rem;
+}
+.captcha-form button[type="submit"]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* ==== Join Help ==== */
+.join-help {
+    margin-top: 1.5rem;
+    text-align: left;
+    background: rgba(20,25,55,0.9);
+    border: 1px solid rgba(100,150,255,0.25);
+    border-radius: 14px;
+    padding: 1rem 1.4rem;
+}
+.join-help summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #a0c4ff;
+}
+.join-help summary:hover { color: #fff; }
+.join-help ol {
+    margin: 0.9rem 0 0.3rem;
+    padding-left: 1.4rem;
+    font-size: 0.95rem;
+    color: #e0f2ff;
+}
+.join-help li { margin-bottom: 0.5rem; }
+.join-help code {
+    background: rgba(100,150,255,0.15);
+    border-radius: 6px;
+    padding: 0.1rem 0.4rem;
+    font-size: 0.9rem;
+}
+
+/* ==== Steam Button ==== */
+.btn-steam {
+    background: linear-gradient(135deg, #1b2838, #2a475e);
+    color: #c7d5e0;
+    padding: 0.75rem 2rem;
+    border-radius: 14px;
+    font-weight: 600;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    border: 1px solid rgba(100,150,255,0.35);
+    transition: all 0.3s ease;
+}
+.btn-steam:hover {
+    transform: translateY(-2px);
+    color: #fff;
+    box-shadow: 0 8px 20px rgba(27,40,56,0.55);
+}
+
+/* ==== Boot Progress (starting page) ==== */
+.status-badge.starting {
+    background: linear-gradient(135deg, #fff3cd, #ffe08a);
+    color: #7a5c00;
+}
+.boot-spinner {
+    width: 44px;
+    height: 44px;
+    margin: 0.4rem auto 1.1rem;
+    border: 4px solid rgba(100,150,255,0.25);
+    border-top-color: #4a90e2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.boot-text {
+    font-size: 1rem;
+    color: #e0f2ff;
+    margin-bottom: 1.1rem;
+}
+.boot-progress {
+    height: 12px;
+    border-radius: 999px;
+    background: rgba(100,150,255,0.18);
+    overflow: hidden;
+}
+.boot-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #4a90e2, #a0d8ff);
+    transition: width 1s linear;
+}
+.boot-eta {
+    margin-top: 0.6rem;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+}
+.boot-note {
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    color: #a0c4ff;
+}
+
 /* ==== Info Icon (Tooltip) ==== */
 .info-icon {
     cursor: help;

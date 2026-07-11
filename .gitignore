@@ -3,3 +3,6 @@ palworld-starter
 *.exe
 *.test
 results.sarif
+graphify-out/
+
+.claudeignore
