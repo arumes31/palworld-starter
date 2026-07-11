@@ -16,10 +16,20 @@ import (
 
 const testTemplateDir = "../../templates"
 
+func newInstance(t *testing.T, id string) *Instance {
+	t.Helper()
+	return &Instance{
+		ID:          id,
+		DisplayName: "Test Server " + id,
+		Address:     "1.2.3.4:8211",
+		Game:        game.NewController("palworld_test_container_"+id, 8212),
+		State:       state.New(filepath.Join(t.TempDir(), id+"-time.json")),
+	}
+}
+
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	st := state.New(filepath.Join(t.TempDir(), "time_remaining.json"))
-	return New(game.NewController("palworld_test_container"), st, testTemplateDir, "../../static")
+	return New([]*Instance{newInstance(t, "test")}, testTemplateDir, "../../static")
 }
 
 func TestSessionEncryptDecrypt(t *testing.T) {
@@ -61,6 +71,7 @@ func TestCSRFValidation(t *testing.T) {
 
 	sessionData := &SessionData{
 		CaptchaAnswer: 100,
+		CaptchaServer: "test",
 		CsrfToken:     "correct_csrf",
 		Language:      "en",
 	}
@@ -109,6 +120,7 @@ func TestHandlePlayers(t *testing.T) {
 	}
 
 	var body struct {
+		Server   string            `json:"server"`
 		Status   string            `json:"status"`
 		Count    int               `json:"count"`
 		Players  []game.PlayerInfo `json:"players"`
@@ -116,6 +128,9 @@ func TestHandlePlayers(t *testing.T) {
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Invalid JSON response: %v", err)
+	}
+	if body.Server != "test" {
+		t.Errorf("Expected default server 'test', got %q", body.Server)
 	}
 	if body.Count != 0 || len(body.Players) != 0 {
 		t.Errorf("Expected empty player list, got count=%d players=%v", body.Count, body.Players)
@@ -125,6 +140,45 @@ func TestHandlePlayers(t *testing.T) {
 	}
 	if body.Joinable {
 		t.Errorf("joinable must be false while the container is not running")
+	}
+}
+
+func TestMultiServerResolution(t *testing.T) {
+	srv := New([]*Instance{newInstance(t, "alpha"), newInstance(t, "beta")}, testTemplateDir, "../../static")
+
+	for _, tc := range []struct {
+		query string
+		want  string
+	}{
+		{"", "alpha"},           // default = first
+		{"?srv=beta", "beta"},   // explicit selection
+		{"?srv=nope", "alpha"},  // unknown falls back to first
+		{"?srv=alpha", "alpha"}, // explicit first
+	} {
+		req := httptest.NewRequest("GET", "/api/players"+tc.query, nil)
+		rr := httptest.NewRecorder()
+		srv.handlePlayers(rr, req)
+
+		var body struct {
+			Server string `json:"server"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatalf("Invalid JSON response: %v", err)
+		}
+		if body.Server != tc.want {
+			t.Errorf("query %q: expected server %q, got %q", tc.query, tc.want, body.Server)
+		}
+	}
+
+	// Index must render one panel per server.
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	srv.handleIndex(rr, req)
+	html := rr.Body.String()
+	for _, want := range []string{`id="player-count-alpha"`, `id="player-count-beta"`, "/captcha_start?srv=alpha", "/captcha_start?srv=beta"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("Multi-server index missing %q", want)
+		}
 	}
 }
 
@@ -138,15 +192,18 @@ func TestHandleHealthz(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Expected 200, got %d", rr.Code)
 	}
-	var body map[string]interface{}
+	var body struct {
+		Status  string                   `json:"status"`
+		Servers []map[string]interface{} `json:"servers"`
+	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("Invalid JSON response: %v", err)
 	}
-	if body["status"] != "ok" {
-		t.Errorf("Expected status ok, got %v", body["status"])
+	if body.Status != "ok" {
+		t.Errorf("Expected status ok, got %v", body.Status)
 	}
-	if _, ok := body["container"]; !ok {
-		t.Errorf("Expected container field in healthz response")
+	if len(body.Servers) != 1 || body.Servers[0]["id"] != "test" {
+		t.Errorf("Expected one server entry 'test', got %v", body.Servers)
 	}
 }
 
@@ -193,7 +250,7 @@ func TestIndexRendersPlayersSection(t *testing.T) {
 		t.Fatalf("Expected 200, got %d", rr.Code)
 	}
 	html := rr.Body.String()
-	for _, want := range []string{`id="player-count"`, `id="player-list"`, "/api/players", "join-help", "80.66.59.216:8211"} {
+	for _, want := range []string{`id="player-count-test"`, `id="player-list-test"`, "/api/players", "join-help", "1.2.3.4:8211"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("Index page missing %q", want)
 		}
@@ -221,9 +278,17 @@ func TestAllTemplatesRender(t *testing.T) {
 			srv.renderTemplate(rr, name, PageContext{
 				Language:            lang,
 				DockerContainerName: "Test Server",
+				ServerID:            "test",
 				Status:              "running",
 				ServerAddress:       "1.2.3.4:8211",
 				BootEstimateSeconds: BootEstimateSeconds,
+				Servers: []ServerPanel{{
+					ID:            "test",
+					DisplayName:   "Test Server",
+					Address:       "1.2.3.4:8211",
+					Status:        "running",
+					TimeRemaining: 900,
+				}},
 			})
 			if rr.Code != http.StatusOK {
 				t.Errorf("Template %s (%s) failed to render: %d %s", name, lang, rr.Code, rr.Body.String())

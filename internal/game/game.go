@@ -21,8 +21,6 @@ import (
 	"github.com/docker/docker/client"
 )
 
-const playersEndpoint = "http://localhost:8212/v1/api/players"
-
 // PlayerInfo holds the subset of player data that is safe to expose publicly.
 // The REST API also returns ip, userId and playerId - those must never leave
 // this process.
@@ -33,8 +31,9 @@ type PlayerInfo struct {
 
 // Controller manages one Palworld server container.
 type Controller struct {
-	cli           *client.Client
-	containerName string
+	cli             *client.Client
+	containerName   string
+	playersEndpoint string
 
 	statusMu    sync.Mutex
 	statusCache string
@@ -46,15 +45,20 @@ type Controller struct {
 	playersTime  time.Time
 }
 
-// NewController creates a controller for the named container. A Docker init
-// failure is logged, not fatal - all methods degrade gracefully.
-func NewController(containerName string) *Controller {
+// NewController creates a controller for the named container whose Palworld
+// REST API listens on the given localhost port. A Docker init failure is
+// logged, not fatal - all methods degrade gracefully.
+func NewController(containerName string, restPort int) *Controller {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Printf("Failed to initialize Docker client: %v", err)
 		cli = nil
 	}
-	return &Controller{cli: cli, containerName: containerName}
+	return &Controller{
+		cli:             cli,
+		containerName:   containerName,
+		playersEndpoint: fmt.Sprintf("http://localhost:%d/v1/api/players", restPort),
+	}
 }
 
 // Status inspects the container without caching.
@@ -153,7 +157,7 @@ func (c *Controller) IsPaused() bool {
 
 func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
 	hc := &http.Client{Timeout: 4 * time.Second}
-	resp, err := hc.Get(playersEndpoint)
+	resp, err := hc.Get(c.playersEndpoint)
 	if err != nil {
 		return nil, false
 	}

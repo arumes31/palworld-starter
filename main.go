@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"arumes31/palworld-starter/internal/discord"
@@ -13,7 +15,9 @@ import (
 	"arumes31/palworld-starter/internal/web"
 )
 
-const timeFilePath = "/hostmem/gamecontroller-palworld-time_remaining.json"
+// legacyTimeFilePath is the state file of the original single-server setup;
+// it is kept for the default server so upgrades do not lose the timer.
+const legacyTimeFilePath = "/hostmem/gamecontroller-palworld-time_remaining.json"
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -24,6 +28,75 @@ func websiteURL() string {
 		return u
 	}
 	return "https://pal.wowcraft.pw/"
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envKey converts a server id to the uppercase form used in env var names
+// (e.g. "pal-2" → "PAL_2").
+func envKey(id string) string {
+	up := strings.ToUpper(id)
+	return strings.Map(func(r rune) rune {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '_'
+	}, up)
+}
+
+// loadInstances builds one web.Instance per configured server.
+//
+// Multi-server mode: SERVERS is a comma-separated list of server ids. Each
+// server is configured via SERVER_<ID>_CONTAINER, SERVER_<ID>_ADDRESS,
+// SERVER_<ID>_RESTPORT and SERVER_<ID>_NAME (id in uppercase, non-alphanumeric
+// characters replaced by "_").
+//
+// Single-server mode (SERVERS unset): the legacy DOCKER_CONTAINER_NAME /
+// SERVER_ADDRESS variables and REST port 8212 are used unchanged.
+func loadInstances() []*web.Instance {
+	serverList := os.Getenv("SERVERS")
+	if serverList == "" {
+		containerName := envOr("DOCKER_CONTAINER_NAME", "my_container")
+		return []*web.Instance{{
+			ID:          "default",
+			DisplayName: envOr("DOCKER_CONTAINER_NAME", "Palworld Server"),
+			Address:     envOr("SERVER_ADDRESS", "80.66.59.216:8211"),
+			Game:        game.NewController(containerName, 8212),
+			State:       state.New(legacyTimeFilePath),
+		}}
+	}
+
+	var instances []*web.Instance
+	for _, raw := range strings.Split(serverList, ",") {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		key := envKey(id)
+
+		restPort := 8212
+		if p, err := strconv.Atoi(os.Getenv("SERVER_" + key + "_RESTPORT")); err == nil && p > 0 {
+			restPort = p
+		}
+		containerName := envOr("SERVER_"+key+"_CONTAINER", id)
+
+		instances = append(instances, &web.Instance{
+			ID:          id,
+			DisplayName: envOr("SERVER_"+key+"_NAME", id),
+			Address:     envOr("SERVER_"+key+"_ADDRESS", ""),
+			Game:        game.NewController(containerName, restPort),
+			State:       state.New(fmt.Sprintf("/hostmem/gamecontroller-%s-time_remaining.json", id)),
+		})
+	}
+	if len(instances) == 0 {
+		log.Fatalf("SERVERS is set but contains no server ids")
+	}
+	return instances
 }
 
 // startTimerTicker counts the remaining time down, warns players in-game at
@@ -140,27 +213,24 @@ func startDiscordRefreshTicker() {
 }
 
 func main() {
-	containerName := os.Getenv("DOCKER_CONTAINER_NAME")
-	if containerName == "" {
-		containerName = "my_container"
+	instances := loadInstances()
+	for _, inst := range instances {
+		log.Printf("Managing server %q (container %s, address %s)", inst.ID, inst.DisplayName, inst.Address)
 	}
-
-	log.Printf("Initializing Palworld Starter with container: %s", containerName)
-
-	ctrl := game.NewController(containerName)
-	st := state.New(timeFilePath)
 
 	// Warm up cache
 	_ = discord.InviteURL()
 
-	// Start tickers
-	startTimerTicker(ctrl, st)
-	startPlayerExtendTicker(ctrl, st)
-	startBroadcastScheduler(ctrl)
-	startAutoBackupTicker(ctrl)
+	// Start one ticker set per server
+	for _, inst := range instances {
+		startTimerTicker(inst.Game, inst.State)
+		startPlayerExtendTicker(inst.Game, inst.State)
+		startBroadcastScheduler(inst.Game)
+		startAutoBackupTicker(inst.Game)
+	}
 	startDiscordRefreshTicker()
 
-	srv := web.New(ctrl, st, "templates", "./static")
+	srv := web.New(instances, "templates", "./static")
 
 	log.Println("Palworld Free Server Controller started on :5000")
 	if err := http.ListenAndServe("0.0.0.0:5000", srv.Routes()); err != nil {

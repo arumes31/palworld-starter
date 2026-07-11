@@ -27,6 +27,8 @@ type SessionData struct {
 	CaptchaAnswer int    `json:"captcha_answer"`
 	CaptchaNum1   int    `json:"captcha_num1"`
 	CaptchaNum2   int    `json:"captcha_num2"`
+	CaptchaServer string `json:"captcha_server"`
+	LastCaptcha   string `json:"last_captcha"`
 	Language      string `json:"language"`
 	CsrfToken     string `json:"csrf_token"`
 }
@@ -112,8 +114,8 @@ func getPreferredLanguage(r *http.Request) string {
 		return l
 	}
 	accept := r.Header.Get("Accept-Language")
-	if strings.Contains(accept, "de") {
-		return "de"
+	if strings.Contains(accept, "en") {
+		return "en"
 	}
-	return "en"
+	return "de"
 }

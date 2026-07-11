@@ -47,6 +47,39 @@ Set the following environment variables:
 | `DISCORD_FALLBACK_URL` | Fallback invitation link | `https://discord.gg/XXXXXINVITENOTFOUNDXXXXXX` |
 | `SERVER_ADDRESS` | Public game address shown on the page (IP:port) | `80.66.59.216:8211` |
 | `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://pal.wowcraft.pw/` |
+| `SERVERS` | Comma-separated server ids to enable multi-server mode | *unset (single server)* |
+
+### Multiple Servers
+
+Set `SERVERS` to a comma-separated list of server ids to manage several
+Palworld containers from one page. Each server is configured with its own
+variables (id uppercased, non-alphanumeric characters replaced by `_`):
+
+| Variable | Description | Default |
+|---|---|---|
+| `SERVER_<ID>_CONTAINER` | Docker container name | the id |
+| `SERVER_<ID>_NAME` | Display name on the website | the id |
+| `SERVER_<ID>_ADDRESS` | Public game address (IP:port) | *empty* |
+| `SERVER_<ID>_RESTPORT` | Host port of the container's Palworld REST API | `8212` |
+
+Example:
+
+```yaml
+environment:
+  SERVERS: "pal1,pal2"
+  SERVER_PAL1_CONTAINER: "palworld-1"
+  SERVER_PAL1_NAME: "Palworld Main"
+  SERVER_PAL1_ADDRESS: "80.66.59.216:8211"
+  SERVER_PAL1_RESTPORT: "8212"
+  SERVER_PAL2_CONTAINER: "palworld-2"
+  SERVER_PAL2_NAME: "Palworld Hardcore"
+  SERVER_PAL2_ADDRESS: "80.66.59.216:8221"
+  SERVER_PAL2_RESTPORT: "8222"
+```
+
+Each server keeps its own timer (`/hostmem/gamecontroller-<id>-time_remaining.json`),
+tickers, backups and boot page; without `SERVERS` the legacy single-server
+variables keep working unchanged.
 
 ---
 
