@@ -360,8 +360,13 @@ func TestAllTemplatesRender(t *testing.T) {
 			if rr.Body.Len() == 0 {
 				t.Errorf("Template %s (%s) rendered an empty page", name, lang)
 			}
-			if name == "index.html" && !strings.Contains(rr.Body.String(), "steam://connect/1.2.3.4:8211") {
-				t.Errorf("Running index (%s) must contain the Steam connect link", lang)
+			// Palworld rejects steam://connect ("invalid app id"); the button
+			// must launch the game and carry the address for clipboard copy.
+			if name == "index.html" && !strings.Contains(rr.Body.String(), `href="steam://rungameid/1623730"`) {
+				t.Errorf("Running index (%s) must contain the Steam launch link", lang)
+			}
+			if name == "index.html" && !strings.Contains(rr.Body.String(), `data-address="1.2.3.4:8211"`) {
+				t.Errorf("Running index (%s) must carry the server address for the copy handler", lang)
 			}
 			if name == "index.html" && !strings.Contains(rr.Body.String(), "mode-chip pve") {
 				t.Errorf("Running index (%s) must show the PvE badge", lang)

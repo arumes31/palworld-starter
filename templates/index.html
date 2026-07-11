@@ -81,7 +81,7 @@
             <div class="action-module">
                 {{ if or (eq .Status "running") (eq .Status "starting") }}
                     <a href="/captcha?srv={{ .ID }}" class="btn-primary">+ {{ if eq $lang "de" }}12 Stunden hinzufügen{{ else }}Add 12 Hours{{ end }}</a>
-                    <a href="steam://connect/{{ .Address }}" class="btn-outline">{{ if eq $lang "de" }}Über Steam verbinden{{ else }}Connect via Steam{{ end }}</a>
+                    <a href="steam://rungameid/1623730" class="btn-outline steam-launch" data-address="{{ .Address }}" title="{{ if eq $lang "de" }}Startet Palworld über Steam und kopiert die Server-IP in die Zwischenablage{{ else }}Launches Palworld via Steam and copies the server IP to your clipboard{{ end }}">{{ if eq $lang "de" }}Palworld starten (IP wird kopiert){{ else }}Launch Palworld (copies IP){{ end }}</a>
                 {{ else }}
                     <a href="/captcha_start?srv={{ .ID }}" class="btn-primary">{{ if eq $lang "de" }}Server starten (+12 Stunden){{ else }}Start Server (+12 Hours){{ end }}</a>
                 {{ end }}
@@ -92,12 +92,12 @@
                         <li>Falls der Server gestoppt ist, starte ihn oben (kurzes Rätsel lösen).</li>
                         <li>Starte Palworld und wähle im Hauptmenü <strong>„Mehrspielerspiel beitreten“</strong>.</li>
                         <li>Gib unten in der Adressleiste <code>{{ .Address }}</code> ein und klicke <strong>Verbinden</strong>.</li>
-                        <li>Alternativ: Nutze den Button „Über Steam verbinden“, wenn der Server läuft.</li>
+                        <li>Tipp: Der Button „Palworld starten“ öffnet das Spiel über Steam und kopiert die Server-IP automatisch – einfach einfügen.</li>
                         {{ else }}
                         <li>If the server is stopped, start it above (solve the quick puzzle).</li>
                         <li>Launch Palworld and choose <strong>“Join Multiplayer Game”</strong> in the main menu.</li>
                         <li>Enter <code>{{ .Address }}</code> in the address bar at the bottom and press <strong>Connect</strong>.</li>
-                        <li>Alternatively use the “Connect via Steam” button while the server is running.</li>
+                        <li>Tip: The “Launch Palworld” button opens the game via Steam and copies the server IP automatically – just paste it.</li>
                         {{ end }}
                     </ol>
                 </details>
@@ -262,6 +262,21 @@
             document.getElementById('player-count-' + s.ID).textContent = '0';
         }
     }
+
+    // Palworld has no steam://connect support (the game rejects it with
+    // "invalid app id"). The button launches the game via Steam instead and
+    // copies the address, so the visitor only pastes it into
+    // "Join Multiplayer Game".
+    document.querySelectorAll('.steam-launch').forEach(el => {
+        el.addEventListener('click', () => {
+            navigator.clipboard.writeText(el.dataset.address).catch(() => {});
+            const original = el.textContent;
+            el.textContent = lang === 'de'
+                ? 'IP kopiert! In „Mehrspielerspiel beitreten“ einfügen'
+                : 'IP copied! Paste it in "Join Multiplayer Game"';
+            setTimeout(() => { el.textContent = original; }, 4000);
+        });
+    });
 
     document.querySelectorAll('.copyable').forEach(el => {
         el.addEventListener('click', () => {
