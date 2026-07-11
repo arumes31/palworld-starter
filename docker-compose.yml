@@ -15,9 +15,12 @@ services:
     environment:
       - STATE_DIR=/data
       - DOCKER_CONTAINER_NAME=palworld-server
-      # For multiple servers, uncomment and adjust:
-      # - SERVERS=pal1,pal2
-      # - SERVER_PAL1_NAME=Alpha Nexus
-      # - SERVER_PAL1_CONTAINER=palworld-server-1
-      # - SERVER_PAL2_NAME=Beta Hub
-      # - SERVER_PAL2_CONTAINER=palworld-server-2
+      - REST_API_HOST=palworld-server
+    networks:
+      - default
+      - test_server
+
+networks:
+  test_server:
+    external: true
+    name: palworld-test-server_default

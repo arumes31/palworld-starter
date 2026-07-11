@@ -10,8 +10,8 @@
                 <h2 class="sys-name">{{ if eq .Language "de" }}Server starten{{ else }}Start Server{{ end }}</h2>
             </div>
             <nav class="footer-nav lang-switch">
-                <a href="?lang=de" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
-                <a href="?lang=en" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
+                <a href="?lang=de&srv={{ .ServerID }}" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
+                <a href="?lang=en&srv={{ .ServerID }}" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
             </nav>
         </div>
 

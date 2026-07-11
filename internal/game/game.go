@@ -38,26 +38,34 @@ type Controller struct {
 	statusMu    sync.Mutex
 	statusCache string
 	statusTime  time.Time
+	adminPassword string
 
 	playersMu    sync.Mutex
 	playersCache []PlayerInfo
 	apiUpCache   bool
 	playersTime  time.Time
+
+	metricsMu    sync.Mutex
+	metricsCache ServerMetrics
+	metricsTime  time.Time
 }
 
 // NewController creates a controller for the named container whose Palworld
 // REST API listens on the given localhost port. A Docker init failure is
 // logged, not fatal - all methods degrade gracefully.
-func NewController(containerName string, restPort int) *Controller {
+func NewController(containerName, restHost string, restPort int) *Controller {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Printf("Failed to initialize Docker client: %v", err)
 		cli = nil
 	}
+	if restHost == "" {
+		restHost = "localhost"
+	}
 	return &Controller{
 		cli:             cli,
 		containerName:   containerName,
-		playersEndpoint: fmt.Sprintf("http://localhost:%d/v1/api/players", restPort),
+		playersEndpoint: fmt.Sprintf("http://%s:%d/v1/api/players", restHost, restPort),
 	}
 }
 
@@ -77,6 +85,13 @@ func (c *Controller) Status() string {
 		log.Printf("Docker inspect error: %v", err)
 		return "unknown"
 	}
+
+	for _, env := range inspect.Config.Env {
+		if strings.HasPrefix(env, "ADMIN_PASSWORD=") {
+			c.adminPassword = strings.SplitN(env, "=", 2)[1]
+		}
+	}
+
 	return inspect.State.Status
 }
 
@@ -156,14 +171,21 @@ func (c *Controller) IsPaused() bool {
 }
 
 func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
+	req, _ := http.NewRequest("GET", c.playersEndpoint, nil)
+	if c.adminPassword != "" {
+		req.SetBasicAuth("admin", c.adminPassword)
+	}
+
 	hc := &http.Client{Timeout: 4 * time.Second}
-	resp, err := hc.Get(c.playersEndpoint)
+	resp, err := hc.Do(req)
 	if err != nil {
+		log.Printf("[%s] fetchPlayers error: %v", c.containerName, err)
 		return nil, false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[%s] fetchPlayers HTTP %d", c.containerName, resp.StatusCode)
 		return nil, false
 	}
 
@@ -174,6 +196,58 @@ func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
 		return nil, false
 	}
 	return r.Players, true
+}
+
+
+type ServerMetrics struct {
+	ServerFPS int `json:"serverfps"`
+	Uptime    int `json:"uptime"`
+}
+
+func (c *Controller) fetchMetrics() (ServerMetrics, bool) {
+	req, _ := http.NewRequest("GET", strings.Replace(c.playersEndpoint, "players", "metrics", 1), nil)
+	
+	c.statusMu.Lock()
+	if c.adminPassword != "" {
+		req.SetBasicAuth("admin", c.adminPassword)
+	}
+	c.statusMu.Unlock()
+
+	hc := &http.Client{Timeout: 4 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return ServerMetrics{}, false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ServerMetrics{}, false
+	}
+
+	var m ServerMetrics
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		return ServerMetrics{}, false
+	}
+	return m, true
+}
+
+func (c *Controller) Metrics() ServerMetrics {
+	c.metricsMu.Lock()
+	defer c.metricsMu.Unlock()
+
+	if time.Since(c.metricsTime) < 10*time.Second {
+		return c.metricsCache
+	}
+
+	if c.CachedStatus() == "running" && !c.IsPaused() {
+		if m, ok := c.fetchMetrics(); ok {
+			c.metricsCache = m
+		}
+	} else {
+		c.metricsCache = ServerMetrics{}
+	}
+	c.metricsTime = time.Now()
+	return c.metricsCache
 }
 
 // refreshPlayersLocked refreshes the players cache. Callers must hold
@@ -266,13 +340,29 @@ func (c *Controller) Broadcast(message string) {
 		return
 	}
 
-	exitCode, output, err := c.exec([]string{"rcon-cli", "Broadcast " + message})
+	announceEndpoint := strings.Replace(c.playersEndpoint, "players", "announce", 1)
+	payload := map[string]string{"message": message}
+	body, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("POST", announceEndpoint, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	
+	c.statusMu.Lock()
+	if c.adminPassword != "" {
+		req.SetBasicAuth("admin", c.adminPassword)
+	}
+	c.statusMu.Unlock()
+
+	hc := &http.Client{Timeout: 5 * time.Second}
+	resp, err := hc.Do(req)
 	if err != nil {
-		log.Printf("RCON broadcast error: %v", err)
+		log.Printf("REST API broadcast error: %v", err)
 		return
 	}
-	if exitCode != 0 {
-		log.Printf("RCON broadcast failed: %s", output)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("REST API broadcast failed with HTTP %d", resp.StatusCode)
 	}
 }
 

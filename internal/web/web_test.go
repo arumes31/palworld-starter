@@ -22,7 +22,7 @@ func newInstance(t *testing.T, id string) *Instance {
 		ID:          id,
 		DisplayName: "Test Server " + id,
 		Address:     "1.2.3.4:8211",
-		Game:        game.NewController("palworld_test_container_"+id, 8212),
+		Game:        game.NewController("palworld_test_container_"+id, "localhost", 8212),
 		State:       state.New(filepath.Join(t.TempDir(), id+"-time.json")),
 	}
 }

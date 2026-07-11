@@ -64,11 +64,12 @@ func loadInstances() []*web.Instance {
 	if serverList == "" {
 		containerName := envOr("DOCKER_CONTAINER_NAME", "my_container")
 		stateDir := envOr("STATE_DIR", "/hostmem")
+		restHost := envOr("REST_API_HOST", "host.docker.internal")
 		return []*web.Instance{{
 			ID:          "default",
 			DisplayName: envOr("DOCKER_CONTAINER_NAME", "Palworld Server"),
 			Address:     envOr("SERVER_ADDRESS", "80.66.59.216:8211"),
-			Game:        game.NewController(containerName, 8212),
+			Game:        game.NewController(containerName, restHost, 8212),
 			State:       state.New(filepath.Join(stateDir, legacyTimeFilePath)),
 		}}
 	}
@@ -87,12 +88,13 @@ func loadInstances() []*web.Instance {
 		}
 		containerName := envOr("SERVER_"+key+"_CONTAINER", id)
 		stateDir := envOr("STATE_DIR", "/hostmem")
+		restHost := envOr("SERVER_"+key+"_RESTHOST", "host.docker.internal")
 
 		instances = append(instances, &web.Instance{
 			ID:          id,
 			DisplayName: envOr("SERVER_"+key+"_NAME", id),
 			Address:     envOr("SERVER_"+key+"_ADDRESS", ""),
-			Game:        game.NewController(containerName, restPort),
+			Game:        game.NewController(containerName, restHost, restPort),
 			State:       state.New(filepath.Join(stateDir, fmt.Sprintf("gamecontroller-%s-time_remaining.json", id))),
 		})
 	}
