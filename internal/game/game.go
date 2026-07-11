@@ -44,21 +44,28 @@ type Controller struct {
 	playersCache []PlayerInfo
 	apiUpCache   bool
 	playersTime  time.Time
+
+	metricsMu    sync.Mutex
+	metricsCache ServerMetrics
+	metricsTime  time.Time
 }
 
 // NewController creates a controller for the named container whose Palworld
 // REST API listens on the given localhost port. A Docker init failure is
 // logged, not fatal - all methods degrade gracefully.
-func NewController(containerName string, restPort int) *Controller {
+func NewController(containerName, restHost string, restPort int) *Controller {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Printf("Failed to initialize Docker client: %v", err)
 		cli = nil
 	}
+	if restHost == "" {
+		restHost = "localhost"
+	}
 	return &Controller{
 		cli:             cli,
 		containerName:   containerName,
-		playersEndpoint: fmt.Sprintf("http://localhost:%d/v1/api/players", restPort),
+		playersEndpoint: fmt.Sprintf("http://%s:%d/v1/api/players", restHost, restPort),
 	}
 }
 
@@ -189,6 +196,58 @@ func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
 		return nil, false
 	}
 	return r.Players, true
+}
+
+
+type ServerMetrics struct {
+	ServerFPS int `json:"serverfps"`
+	Uptime    int `json:"uptime"`
+}
+
+func (c *Controller) fetchMetrics() (ServerMetrics, bool) {
+	req, _ := http.NewRequest("GET", strings.Replace(c.playersEndpoint, "players", "metrics", 1), nil)
+	
+	c.statusMu.Lock()
+	if c.adminPassword != "" {
+		req.SetBasicAuth("admin", c.adminPassword)
+	}
+	c.statusMu.Unlock()
+
+	hc := &http.Client{Timeout: 4 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return ServerMetrics{}, false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ServerMetrics{}, false
+	}
+
+	var m ServerMetrics
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		return ServerMetrics{}, false
+	}
+	return m, true
+}
+
+func (c *Controller) Metrics() ServerMetrics {
+	c.metricsMu.Lock()
+	defer c.metricsMu.Unlock()
+
+	if time.Since(c.metricsTime) < 10*time.Second {
+		return c.metricsCache
+	}
+
+	if c.CachedStatus() == "running" && !c.IsPaused() {
+		if m, ok := c.fetchMetrics(); ok {
+			c.metricsCache = m
+		}
+	} else {
+		c.metricsCache = ServerMetrics{}
+	}
+	c.metricsTime = time.Now()
+	return c.metricsCache
 }
 
 // refreshPlayersLocked refreshes the players cache. Callers must hold

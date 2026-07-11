@@ -30,6 +30,10 @@
                     <span class="data-value copyable">{{ .Address }}</span>
                     <span class="toast">{{ if eq $lang "de" }}Kopiert!{{ else }}Copied!{{ end }}</span>
                 </div>
+                <div class="data-row">
+                    <span class="data-label">{{ if eq $lang "de" }}Server Leistung{{ else }}Server Health{{ end }}</span>
+                    <span class="data-value"><span id="fps-{{ .ID }}">{{ if gt .Metrics.ServerFPS 0 }}{{ .Metrics.ServerFPS }} FPS{{ else }}–{{ end }}</span></span>
+                </div>
                 <div class="data-row column">
                     <div class="data-row-top">
                         <span class="data-label">{{ if eq $lang "de" }}Spieler online{{ else }}Players Online{{ end }}</span>
@@ -94,6 +98,11 @@
             if (!resp.ok) return;
             const data = await resp.json();
             document.getElementById('player-count-' + s.ID).textContent = data.count;
+            if (data.fps > 0) {
+                document.getElementById('fps-' + s.ID).textContent = data.fps + ' FPS';
+            } else {
+                document.getElementById('fps-' + s.ID).textContent = '–';
+            }
             const pct = Math.min((data.count / maxPlayers) * 100, 100);
             document.getElementById('player-bar-' + s.ID).style.width = pct + '%';
             const list = document.getElementById('player-list-' + s.ID);

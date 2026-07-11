@@ -99,6 +99,7 @@ type ServerPanel struct {
 	Address       string
 	Status        string
 	TimeRemaining int
+	Metrics       game.ServerMetrics
 }
 
 // PageContext is the data passed to every template.
@@ -183,6 +184,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			Address:       inst.Address,
 			Status:        inst.Game.CachedStatus(),
 			TimeRemaining: inst.State.GetTimeRemaining(),
+			Metrics:       inst.Game.Metrics(),
 		})
 	}
 
@@ -442,12 +444,14 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	metrics := inst.Game.Metrics()
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"server":   inst.ID,
 		"status":   inst.Game.CachedStatus(),
 		"count":    len(players),
 		"players":  players,
 		"joinable": inst.Game.RestAPIUp(),
+		"fps":      metrics.ServerFPS,
 	})
 }
 
