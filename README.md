@@ -47,7 +47,7 @@ Set the following environment variables:
 | `DISCORD_FALLBACK_URL` | Fallback invitation link | `https://discord.gg/XXXXXINVITENOTFOUNDXXXXXX` |
 | `SERVER_ADDRESS` | Public game address shown on the page (IP:port) | `80.66.59.216:8211` |
 | `REST_API_HOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
-| `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://pal.wowcraft.pw/` |
+| `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://freepalworld.wowcraft.pw/` |
 | `SERVERS` | Comma-separated server ids to enable multi-server mode | *unset (single server)* |
 | `ADMIN_PASSWORD` | Palworld REST API admin password | *scraped from the game container's env* |
 | `SESSION_KEY` | Secret used to encrypt session cookies; set it so sessions survive restarts | *random per start* |

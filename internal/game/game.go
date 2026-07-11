@@ -91,7 +91,7 @@ func WebsiteURL() string {
 	if u := os.Getenv("WEBSITE_URL"); u != "" {
 		return u
 	}
-	return "https://pal.wowcraft.pw/"
+	return "https://freepalworld.wowcraft.pw/"
 }
 
 // endpoint returns the full URL of a REST API endpoint, e.g. endpoint("players").
