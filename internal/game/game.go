@@ -281,13 +281,29 @@ func (c *Controller) Broadcast(message string) {
 		return
 	}
 
-	exitCode, output, err := c.exec([]string{"rcon-cli", "Broadcast " + message})
+	announceEndpoint := strings.Replace(c.playersEndpoint, "players", "announce", 1)
+	payload := map[string]string{"message": message}
+	body, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("POST", announceEndpoint, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	
+	c.statusMu.Lock()
+	if c.adminPassword != "" {
+		req.SetBasicAuth("admin", c.adminPassword)
+	}
+	c.statusMu.Unlock()
+
+	hc := &http.Client{Timeout: 5 * time.Second}
+	resp, err := hc.Do(req)
 	if err != nil {
-		log.Printf("RCON broadcast error: %v", err)
+		log.Printf("REST API broadcast error: %v", err)
 		return
 	}
-	if exitCode != 0 {
-		log.Printf("RCON broadcast failed: %s", output)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("REST API broadcast failed with HTTP %d", resp.StatusCode)
 	}
 }
 
