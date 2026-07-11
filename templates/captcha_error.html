@@ -1,19 +1,33 @@
 {{ define "title" }}{{ if eq .Language "de" }}Fehler – Falsche Antwort{{ else }}Error – Wrong Answer{{ end }}{{ end }}
 
 {{ define "content" }}
-<div class="card error">
-    <h2>{{ if eq .Language "de" }}Oops! Falsche Antwort{{ else }}Oops! Wrong answer{{ end }}</h2>
-    <p>{{ if eq .Language "de" }}Bitte versuche es erneut – das Rätsel ist jedes Mal anders.{{ else }}Please try again – the puzzle is different each time.{{ end }}</p>
-    <br><br><br>
+<div class="panel">
+    <div class="panel-grid-accent" aria-hidden="true"></div>
+    <div class="panel-inner">
+        <div class="panel-header">
+            <div>
+                <span class="sys-label">[!] AUTH_FAIL</span>
+                <h2 class="sys-name">{{ if eq .Language "de" }}Falsche Antwort{{ else }}Wrong Answer{{ end }}</h2>
+            </div>
+            <div class="status-chip">
+                <span class="status-dot"></span>
+                <span>Error</span>
+            </div>
+        </div>
 
-    {{ if eq .RetryTarget "add_time" }}
-        <a href="/captcha?lang={{ .Language }}" class="btn-primary">
-            {{ if eq .Language "de" }}Erneut versuchen{{ else }}Retry{{ end }}
-        </a>
-    {{ else }}
-        <a href="/captcha_start?lang={{ .Language }}" class="btn-primary">
-            {{ if eq .Language "de" }}Erneut versuchen{{ else }}Retry{{ end }}
-        </a>
-    {{ end }}
+        <p class="form-subtitle">{{ if eq .Language "de" }}Bitte versuche es erneut – das Rätsel ist jedes Mal anders.{{ else }}Please try again – the puzzle is different each time.{{ end }}</p>
+
+        <div class="action-module">
+            {{ if eq .RetryTarget "add_time" }}
+                <a href="/captcha?lang={{ .Language }}&srv={{ .ServerID }}" class="btn-primary">
+                    {{ if eq .Language "de" }}Erneut versuchen{{ else }}Retry{{ end }}
+                </a>
+            {{ else }}
+                <a href="/captcha_start?lang={{ .Language }}&srv={{ .ServerID }}" class="btn-primary">
+                    {{ if eq .Language "de" }}Erneut versuchen{{ else }}Retry{{ end }}
+                </a>
+            {{ end }}
+        </div>
+    </div>
 </div>
 {{ end }}

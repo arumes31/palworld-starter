@@ -1,5 +1,7 @@
 // Package web serves the control website: status page, captcha flows, the
-// public players/health JSON endpoints and the boot progress page.
+// public players/health JSON endpoints and the boot progress page. It can
+// manage any number of Palworld servers; handlers select the target server
+// via the "srv" query/form parameter and default to the first one.
 package web
 
 import (
@@ -11,7 +13,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,35 +27,48 @@ import (
 // container start until its REST API answers (i.e. the server is joinable).
 const BootEstimateSeconds = 90
 
-// Server holds the web layer's dependencies.
-type Server struct {
-	game          *game.Controller
-	state         *state.State
-	templateDir   string
-	staticDir     string
-	displayName   string
-	serverAddress string
+// Instance is one managed Palworld server.
+type Instance struct {
+	ID          string
+	DisplayName string
+	Address     string // public game address (ip:port)
+	Game        *game.Controller
+	State       *state.State
 }
 
-// New creates the web server. serverAddress (the game address players
-// connect to) comes from SERVER_ADDRESS.
-func New(g *game.Controller, st *state.State, templateDir, staticDir string) *Server {
-	displayName := os.Getenv("DOCKER_CONTAINER_NAME")
-	if displayName == "" {
-		displayName = "Palworld Server"
-	}
-	serverAddress := os.Getenv("SERVER_ADDRESS")
-	if serverAddress == "" {
-		serverAddress = "80.66.59.216:8211"
+// Server holds the web layer's dependencies.
+type Server struct {
+	instances   []*Instance
+	byID        map[string]*Instance
+	templateDir string
+	staticDir   string
+}
+
+// New creates the web server for the given server instances (at least one).
+func New(instances []*Instance, templateDir, staticDir string) *Server {
+	byID := make(map[string]*Instance, len(instances))
+	for _, inst := range instances {
+		byID[inst.ID] = inst
 	}
 	return &Server{
-		game:          g,
-		state:         st,
-		templateDir:   templateDir,
-		staticDir:     staticDir,
-		displayName:   displayName,
-		serverAddress: serverAddress,
+		instances:   instances,
+		byID:        byID,
+		templateDir: templateDir,
+		staticDir:   staticDir,
 	}
+}
+
+// resolveInstance picks the server addressed by the "srv" query or form
+// parameter, defaulting to the first configured server.
+func (s *Server) resolveInstance(r *http.Request) *Instance {
+	id := r.URL.Query().Get("srv")
+	if id == "" {
+		id = r.FormValue("srv")
+	}
+	if inst, ok := s.byID[id]; ok {
+		return inst
+	}
+	return s.instances[0]
 }
 
 // Routes returns the HTTP mux with all handlers registered.
@@ -77,10 +91,20 @@ func (s *Server) Routes() *http.ServeMux {
 	return mux
 }
 
+// ServerPanel is the per-server view model for the index page.
+type ServerPanel struct {
+	ID            string
+	DisplayName   string
+	Address       string
+	Status        string
+	TimeRemaining int
+}
+
 // PageContext is the data passed to every template.
 type PageContext struct {
 	Language            string
 	DockerContainerName string
+	ServerID            string
 	Status              string
 	TimeRemaining       int
 	DiscordUrl          string
@@ -89,6 +113,7 @@ type PageContext struct {
 	CsrfToken           string
 	ServerAddress       string
 	BootEstimateSeconds int
+	Servers             []ServerPanel
 }
 
 func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx PageContext) {
@@ -103,9 +128,9 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx Page
 			}
 			return strings.ToUpper(s[:1]) + s[1:]
 		},
-		"tojson": func(v interface{}) string {
+		"tojson": func(v interface{}) template.JS {
 			b, _ := json.Marshal(v)
-			return string(b)
+			return template.JS(b) //nolint:gosec // marshaled from typed server-side data, never raw user input
 		},
 		"range1000": func() []int {
 			res := make([]int, 1000)
@@ -136,23 +161,34 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionData := getSession(r)
-	status := s.game.CachedStatus()
-	discordUrl := discord.InviteURL()
-	remaining := s.state.GetTimeRemaining()
+	// Honor the footer language toggle and remember the choice.
+	if lang := r.URL.Query().Get("lang"); lang == "de" || lang == "en" {
+		sessionData.Language = lang
+		saveSession(w, sessionData)
+	}
+
+	panels := make([]ServerPanel, 0, len(s.instances))
+	for _, inst := range s.instances {
+		panels = append(panels, ServerPanel{
+			ID:            inst.ID,
+			DisplayName:   inst.DisplayName,
+			Address:       inst.Address,
+			Status:        inst.Game.CachedStatus(),
+			TimeRemaining: inst.State.GetTimeRemaining(),
+		})
+	}
 
 	s.renderTemplate(w, "index.html", PageContext{
-		Language:            sessionData.Language,
-		DockerContainerName: s.displayName,
-		Status:              status,
-		TimeRemaining:       remaining,
-		DiscordUrl:          discordUrl,
-		ServerAddress:       s.serverAddress,
+		Language:   sessionData.Language,
+		DiscordUrl: discord.InviteURL(),
+		Servers:    panels,
 	})
 }
 
 func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionData := getSession(r)
+		inst := s.resolveInstance(r)
 
 		lang := r.URL.Query().Get("lang")
 		if lang == "" {
@@ -164,11 +200,17 @@ func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 		sessionData.Language = lang
 
 		// Generate captcha; the numbers live only in the encrypted session
-		// and are served as scratch-off images, never as text.
+		// and are served as scratch-off images, never as text. Retry a few
+		// times so the visitor never sees the same story twice in a row.
 		ch := captcha.Generate(lang)
+		for tries := 0; tries < 5 && ch.Fingerprint == sessionData.LastCaptcha; tries++ {
+			ch = captcha.Generate(lang)
+		}
+		sessionData.LastCaptcha = ch.Fingerprint
 		sessionData.CaptchaAnswer = ch.Answer
 		sessionData.CaptchaNum1 = ch.Num1
 		sessionData.CaptchaNum2 = ch.Num2
+		sessionData.CaptchaServer = inst.ID
 
 		// Ensure CSRF token exists
 		if sessionData.CsrfToken == "" {
@@ -185,10 +227,12 @@ func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 		}
 
 		s.renderTemplate(w, tmplName, PageContext{
-			Language:         lang,
-			QuestionSegments: ch.Segments(),
-			DiscordUrl:       discordUrl,
-			CsrfToken:        sessionData.CsrfToken,
+			Language:            lang,
+			DockerContainerName: inst.DisplayName,
+			ServerID:            inst.ID,
+			QuestionSegments:    ch.Segments(),
+			DiscordUrl:          discordUrl,
+			CsrfToken:           sessionData.CsrfToken,
 		})
 	}
 }
@@ -230,9 +274,18 @@ func (s *Server) handleCaptchaError(w http.ResponseWriter, r *http.Request) {
 
 	s.renderTemplate(w, "captcha_error.html", PageContext{
 		Language:    sessionData.Language,
+		ServerID:    s.resolveInstance(r).ID,
 		DiscordUrl:  discordUrl,
 		RetryTarget: origin,
 	})
+}
+
+// captchaInstance returns the server the visitor's captcha was issued for.
+func (s *Server) captchaInstance(sessionData *SessionData) *Instance {
+	if inst, ok := s.byID[sessionData.CaptchaServer]; ok {
+		return inst
+	}
+	return s.instances[0]
 }
 
 // clearCaptcha invalidates the solved captcha so it cannot be replayed.
@@ -255,10 +308,12 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inst := s.captchaInstance(sessionData)
+
 	ansStr := r.FormValue("captcha_answer")
 	ans, err := strconv.Atoi(ansStr)
 	if err != nil || ans != sessionData.CaptchaAnswer {
-		http.Redirect(w, r, "/captcha_error?origin=start_container", http.StatusSeeOther)
+		http.Redirect(w, r, "/captcha_error?origin=start_container&srv="+inst.ID, http.StatusSeeOther)
 		return
 	}
 
@@ -266,21 +321,21 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	saveSession(w, sessionData)
 
 	// Start container if not running
-	status := s.game.Status()
+	status := inst.Game.Status()
 	if status != "running" {
-		if err := s.game.Start(); err != nil {
-			log.Printf("Failed to start container: %v", err)
+		if err := inst.Game.Start(); err != nil {
+			log.Printf("Failed to start container %s: %v", inst.ID, err)
 		} else {
-			s.state.UpdateTimeRemaining(func(current int) int {
+			inst.State.UpdateTimeRemaining(func(current int) int {
 				val := current
 				if val < 900 {
 					val = 900
 				}
-				return val + 14400
+				return val + 43200
 			})
-			log.Println("Server started + 4 hours added")
+			log.Printf("Server %s started + 12 hours added", inst.ID)
 			// Show boot progress until the game's REST API is reachable.
-			http.Redirect(w, r, "/starting", http.StatusSeeOther)
+			http.Redirect(w, r, "/starting?srv="+inst.ID, http.StatusSeeOther)
 			return
 		}
 	}
@@ -301,22 +356,24 @@ func (s *Server) handleAddTime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inst := s.captchaInstance(sessionData)
+
 	ansStr := r.FormValue("captcha_answer")
 	ans, err := strconv.Atoi(ansStr)
 	if err != nil || ans != sessionData.CaptchaAnswer {
-		http.Redirect(w, r, "/captcha_error?origin=add_time", http.StatusSeeOther)
+		http.Redirect(w, r, "/captcha_error?origin=add_time&srv="+inst.ID, http.StatusSeeOther)
 		return
 	}
 
 	clearCaptcha(sessionData)
 	saveSession(w, sessionData)
 
-	status := s.game.Status()
+	status := inst.Game.Status()
 	if status == "running" {
-		remaining := s.state.UpdateTimeRemaining(func(current int) int {
+		remaining := inst.State.UpdateTimeRemaining(func(current int) int {
 			return current + 43200
 		})
-		log.Printf("+12 hours added, now %dh", remaining/3600)
+		log.Printf("+12 hours added to %s, now %dh", inst.ID, remaining/3600)
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -338,15 +395,16 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := s.game.Status()
+	inst := s.resolveInstance(r)
+	status := inst.Game.Status()
 	if status == "running" {
-		if err := s.game.Stop(); err != nil {
-			log.Printf("Stop failed: %v", err)
+		if err := inst.Game.Stop(); err != nil {
+			log.Printf("Stop failed for %s: %v", inst.ID, err)
 		} else {
-			log.Println("Container stopped due to time expiry or manual stop")
+			log.Printf("Container %s stopped due to time expiry or manual stop", inst.ID)
 		}
 	}
-	s.state.SetTimeRemaining(0)
+	inst.State.SetTimeRemaining(0)
 
 	_, _ = w.Write([]byte("OK"))
 }
@@ -355,39 +413,51 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 // the game's REST API is reachable ("joinable"), then returns to the index.
 func (s *Server) handleStarting(w http.ResponseWriter, r *http.Request) {
 	sessionData := getSession(r)
+	inst := s.resolveInstance(r)
 
 	s.renderTemplate(w, "starting.html", PageContext{
 		Language:            sessionData.Language,
-		DockerContainerName: s.displayName,
-		Status:              s.game.CachedStatus(),
+		DockerContainerName: inst.DisplayName,
+		ServerID:            inst.ID,
+		Status:              inst.Game.CachedStatus(),
 		DiscordUrl:          discord.InviteURL(),
-		ServerAddress:       s.serverAddress,
+		ServerAddress:       inst.Address,
 		BootEstimateSeconds: BootEstimateSeconds,
 	})
 }
 
 func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
-	players := s.game.Players()
+	inst := s.resolveInstance(r)
+	players := inst.Game.Players()
 	if players == nil {
 		players = []game.PlayerInfo{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":   s.game.CachedStatus(),
+		"server":   inst.ID,
+		"status":   inst.Game.CachedStatus(),
 		"count":    len(players),
 		"players":  players,
-		"joinable": s.game.RestAPIUp(),
+		"joinable": inst.Game.RestAPIUp(),
 	})
 }
 
 // handleHealthz is a liveness endpoint for uptime monitoring. It always
-// answers 200 when the web process is up and reports the container status.
+// answers 200 when the web process is up and reports every container status.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	servers := make([]map[string]interface{}, 0, len(s.instances))
+	for _, inst := range s.instances {
+		servers = append(servers, map[string]interface{}{
+			"id":             inst.ID,
+			"container":      inst.Game.CachedStatus(),
+			"time_remaining": inst.State.GetTimeRemaining(),
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":         "ok",
-		"container":      s.game.CachedStatus(),
-		"time_remaining": s.state.GetTimeRemaining(),
+		"status":  "ok",
+		"servers": servers,
 	})
 }

@@ -27,6 +27,8 @@ type SessionData struct {
 	CaptchaAnswer int    `json:"captcha_answer"`
 	CaptchaNum1   int    `json:"captcha_num1"`
 	CaptchaNum2   int    `json:"captcha_num2"`
+	CaptchaServer string `json:"captcha_server"`
+	LastCaptcha   string `json:"last_captcha"`
 	Language      string `json:"language"`
 	CsrfToken     string `json:"csrf_token"`
 }

@@ -1,77 +1,84 @@
-{{ define "title" }}{{ .DockerContainerName }} – {{ title .Status }}{{ end }}
+{{ define "title" }}Palworld Server Control{{ end }}
 
 {{ define "content" }}
-<div class="glass-card">
-    <div class="status-header">
-        <h2 class="status-title">
-            {{ .DockerContainerName }}
-            <span class="status-badge {{ .Status }}">{{ title .Status }}</span>
-        </h2>
-    </div>
+{{ $lang := .Language }}
+<div class="panel-row">
+    {{ range .Servers }}
+    <div class="panel">
+        <div class="panel-grid-accent" aria-hidden="true"></div>
+        <div class="panel-inner">
+            <div class="panel-header">
+                <div>
+                    <span class="sys-label">[{{ .ID }}] SYS_ID</span>
+                    <h2 class="sys-name">{{ .DisplayName }}</h2>
+                </div>
+                <div class="status-chip {{ .Status }}">
+                    <span class="status-dot"></span>
+                    <span>{{ title .Status }}</span>
+                </div>
+            </div>
 
-    <div class="status-block">
-        <div class="info-row">
-            <span class="label">
-                {{ if eq .Language "de" }}Verbleibende Zeit:{{ else }}Remaining Time:{{ end }}
-                <i class="info-icon" title="{{ if eq .Language "de" }}Der Server wird nur pausiert und kann jederzeit hier reaktiviert werden.{{ else }}The server is only paused and can be reactivated here at any time.{{ end }}">Info</i>
-            </span>
-            <span id="remaining-time" class="value"></span>
-        </div>
-        <div class="info-row">
-            <span class="label">{{ if eq .Language "de" }}Server-IP:{{ else }}Server IP:{{ end }}</span>
-            <span id="server-ip" class="copyable value">{{ .ServerAddress }}</span>
-            <span id="copy-toast" class="toast">{{ if eq .Language "de" }}Kopiert!{{ else }}Copied!{{ end }}</span>
-        </div>
-        <div class="info-row">
-            <span class="label">{{ if eq .Language "de" }}Spieler online:{{ else }}Players online:{{ end }}</span>
-            <span id="player-count" class="value">–</span>
-        </div>
-        <ul id="player-list" class="player-list"></ul>
-        <div class="actions">
-            {{ if eq .Status "running" }}
-                <a href="/captcha" id="add-time-link" class="btn-primary">+12 {{ if eq .Language "de" }}Stunden{{ else }}Hours{{ end }}</a>
-            {{ else }}
-                <a href="/captcha_start" id="start-link" class="btn-primary">
-                    {{ if eq .Language "de" }}Server starten (+4 Stunden){{ else }}Start Server (+4 Hours){{ end }}
-                </a>
-            {{ end }}
-        </div>
-        {{ if eq .Status "running" }}
-        <div class="actions">
-            <a href="steam://connect/{{ .ServerAddress }}" class="btn-steam">
-                {{ if eq .Language "de" }}Über Steam verbinden{{ else }}Connect via Steam{{ end }}
-            </a>
-        </div>
-        {{ end }}
-    </div>
+            <div class="data-rows">
+                <div class="data-row accent">
+                    <span class="data-label" title="{{ if eq $lang "de" }}Der Server wird nur pausiert und kann jederzeit hier reaktiviert werden.{{ else }}The server is only paused and can be reactivated here at any time.{{ end }}">
+                        {{ if eq $lang "de" }}Verbleibende Zeit{{ else }}Remaining Time{{ end }}
+                    </span>
+                    <span id="remaining-time-{{ .ID }}" class="data-value primary">–</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">{{ if eq $lang "de" }}Server-IP{{ else }}Server IP{{ end }}</span>
+                    <span class="data-value copyable">{{ .Address }}</span>
+                    <span class="toast">{{ if eq $lang "de" }}Kopiert!{{ else }}Copied!{{ end }}</span>
+                </div>
+                <div class="data-row column">
+                    <div class="data-row-top">
+                        <span class="data-label">{{ if eq $lang "de" }}Spieler online{{ else }}Players Online{{ end }}</span>
+                        <span class="data-value"><span id="player-count-{{ .ID }}">–</span> / 32</span>
+                    </div>
+                    <div class="progress-track"><div id="player-bar-{{ .ID }}" class="progress-fill"></div></div>
+                    <ul id="player-list-{{ .ID }}" class="player-list"></ul>
+                </div>
+            </div>
 
-    <details class="join-help">
-        <summary>{{ if eq .Language "de" }}Wie trete ich bei?{{ else }}How do I join?{{ end }}</summary>
-        <ol>
-            {{ if eq .Language "de" }}
-            <li>Falls der Server gestoppt ist, starte ihn oben (kurzes Rätsel lösen).</li>
-            <li>Starte Palworld und wähle im Hauptmenü <strong>„Mehrspielerspiel beitreten“</strong>.</li>
-            <li>Gib unten in der Adressleiste <code>{{ .ServerAddress }}</code> ein und klicke <strong>Verbinden</strong>.</li>
-            <li>Alternativ: Nutze den Button „Über Steam verbinden“, wenn der Server läuft.</li>
-            {{ else }}
-            <li>If the server is stopped, start it above (solve the quick puzzle).</li>
-            <li>Launch Palworld and choose <strong>“Join Multiplayer Game”</strong> in the main menu.</li>
-            <li>Enter <code>{{ .ServerAddress }}</code> in the address bar at the bottom and press <strong>Connect</strong>.</li>
-            <li>Alternatively use the “Connect via Steam” button while the server is running.</li>
-            {{ end }}
-        </ol>
-    </details>
+            <div class="action-module">
+                {{ if eq .Status "running" }}
+                    <a href="/captcha?srv={{ .ID }}" class="btn-primary">+ {{ if eq $lang "de" }}12 Stunden hinzufügen{{ else }}Add 12 Hours{{ end }}</a>
+                    <a href="steam://connect/{{ .Address }}" class="btn-outline">{{ if eq $lang "de" }}Über Steam verbinden{{ else }}Connect via Steam{{ end }}</a>
+                {{ else }}
+                    <a href="/captcha_start?srv={{ .ID }}" class="btn-primary">{{ if eq $lang "de" }}Server starten (+12 Stunden){{ else }}Start Server (+12 Hours){{ end }}</a>
+                {{ end }}
+                <details class="join-help">
+                    <summary>{{ if eq $lang "de" }}Wie trete ich bei?{{ else }}How do I join?{{ end }}</summary>
+                    <ol>
+                        {{ if eq $lang "de" }}
+                        <li>Falls der Server gestoppt ist, starte ihn oben (kurzes Rätsel lösen).</li>
+                        <li>Starte Palworld und wähle im Hauptmenü <strong>„Mehrspielerspiel beitreten“</strong>.</li>
+                        <li>Gib unten in der Adressleiste <code>{{ .Address }}</code> ein und klicke <strong>Verbinden</strong>.</li>
+                        <li>Alternativ: Nutze den Button „Über Steam verbinden“, wenn der Server läuft.</li>
+                        {{ else }}
+                        <li>If the server is stopped, start it above (solve the quick puzzle).</li>
+                        <li>Launch Palworld and choose <strong>“Join Multiplayer Game”</strong> in the main menu.</li>
+                        <li>Enter <code>{{ .Address }}</code> in the address bar at the bottom and press <strong>Connect</strong>.</li>
+                        <li>Alternatively use the “Connect via Steam” button while the server is running.</li>
+                        {{ end }}
+                    </ol>
+                </details>
+            </div>
+        </div>
+    </div>
+    {{ end }}
 </div>
 {{ end }}
 
 {{ define "scripts" }}
 <script>
-    const timeRemaining = {{ tojson .TimeRemaining }};
-    const status = "{{ .Status }}";
+    const servers = {{ tojson .Servers }};
     const lang = "{{ .Language }}";
+    const maxPlayers = 32;
 
     const translations = {
-        timeUp: lang === 'de' ? 'Zeit abgelaufen!' : 'Time is up!'
+        timeUp: lang === 'de' ? 'Zeit abgelaufen!' : 'Time is up!',
+        offline: lang === 'de' ? 'Offline' : 'Offline'
     };
 
     function formatTime(sec) {
@@ -81,36 +88,15 @@
         return `${h}h ${m}m ${s}s`;
     }
 
-    function startCountdown() {
-        let left = timeRemaining;
-        const el = document.getElementById('remaining-time');
-        const update = () => {
-            if (left >= 0) {
-                el.textContent = formatTime(left--);
-                setTimeout(update, 1000);
-            } else {
-                el.textContent = translations.timeUp;
-            }
-        };
-        update();
-    }
-
-    function copyIP() {
-        const text = document.getElementById('server-ip').textContent;
-        navigator.clipboard.writeText(text).then(() => {
-            const toast = document.getElementById('copy-toast');
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2000);
-        });
-    }
-
-    async function refreshPlayers() {
+    async function refreshPlayers(s) {
         try {
-            const resp = await fetch('/api/players');
+            const resp = await fetch('/api/players?srv=' + encodeURIComponent(s.ID));
             if (!resp.ok) return;
             const data = await resp.json();
-            document.getElementById('player-count').textContent = data.count;
-            const list = document.getElementById('player-list');
+            document.getElementById('player-count-' + s.ID).textContent = data.count;
+            const pct = Math.min((data.count / maxPlayers) * 100, 100);
+            document.getElementById('player-bar-' + s.ID).style.width = pct + '%';
+            const list = document.getElementById('player-list-' + s.ID);
             list.innerHTML = '';
             data.players.forEach(p => {
                 const li = document.createElement('li');
@@ -120,18 +106,38 @@
         } catch (e) { /* server unreachable – keep last shown state */ }
     }
 
-    function initUI() {
-        if (status === 'running') {
-            document.querySelectorAll('.info-row').forEach(row => row.style.display = 'flex');
-            startCountdown();
-            refreshPlayers();
-            setInterval(refreshPlayers, 30000);
+    function initServer(s) {
+        const remainingEl = document.getElementById('remaining-time-' + s.ID);
+        if (s.Status === 'running') {
+            let left = s.TimeRemaining;
+            const update = () => {
+                if (left >= 0) {
+                    remainingEl.textContent = formatTime(left--);
+                    setTimeout(update, 1000);
+                } else {
+                    remainingEl.textContent = translations.timeUp;
+                }
+            };
+            update();
+            refreshPlayers(s);
+            setInterval(() => refreshPlayers(s), 30000);
         } else {
-            document.getElementById('player-count').textContent = '0';
+            remainingEl.textContent = translations.offline;
+            document.getElementById('player-count-' + s.ID).textContent = '0';
         }
     }
 
-    document.getElementById('server-ip')?.addEventListener('click', copyIP);
-    initUI();
+    document.querySelectorAll('.copyable').forEach(el => {
+        el.addEventListener('click', () => {
+            navigator.clipboard.writeText(el.textContent.trim()).then(() => {
+                const toast = el.parentElement.querySelector('.toast');
+                if (!toast) return;
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2000);
+            });
+        });
+    });
+
+    servers.forEach(initServer);
 </script>
 {{ end }}

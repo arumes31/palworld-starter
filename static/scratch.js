@@ -51,7 +51,7 @@
                         total++;
                         if (data[i] === 0) clear++;
                     }
-                    if (total > 0 && clear / total > 0.45) {
+                    if (total > 0 && clear / total > 0.10) {
                         canvas.classList.add('scratched');
                         done.add(wrap);
                         maybeUnlock();
