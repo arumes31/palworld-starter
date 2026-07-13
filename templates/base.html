@@ -49,6 +49,10 @@
 
     <footer class="site-footer">
         <div class="footer-brand">© 2026 PALWORLD-COMMAND-CENTER</div>
+        <nav class="footer-nav">
+            <a href="/terms{{ if .ServerID }}?srv={{ .ServerID }}{{ end }}">{{ if eq .Language "de" }}Nutzungsbedingungen{{ else }}Terms of Use{{ end }}</a>
+            <a href="/privacy{{ if .ServerID }}?srv={{ .ServerID }}{{ end }}">{{ if eq .Language "de" }}Datenschutz{{ else }}Privacy Policy{{ end }}</a>
+        </nav>
         <nav class="footer-nav lang-switch">
             <a href="?lang=de{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
             <a href="?lang=en{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>

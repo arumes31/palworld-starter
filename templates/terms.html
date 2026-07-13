@@ -1,0 +1,71 @@
+{{ define "title" }}{{ if eq .Language "de" }}Nutzungsbedingungen{{ else }}Terms of Use{{ end }}{{ end }}
+
+{{ define "content" }}
+<div class="panel">
+    <div class="panel-grid-accent" aria-hidden="true"></div>
+    <div class="panel-inner">
+        <div class="panel-header">
+            <div>
+                <span class="sys-label">[03] TERMS_OF_SERVICE</span>
+                <h2 class="sys-name">{{ if eq .Language "de" }}Nutzungsbedingungen{{ else }}Terms of Use{{ end }}</h2>
+            </div>
+            <nav class="footer-nav lang-switch">
+                <a href="?lang=de{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
+                <a href="?lang=en{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
+            </nav>
+        </div>
+
+        <div class="legal-content" style="margin-top: 1.5rem; max-height: 500px; overflow-y: auto; padding-right: 10px; font-size: 14px; line-height: 1.6; color: var(--on-surface-variant);">
+            {{ if eq .Language "de" }}
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">1. Geltungsbereich und Zweck</h3>
+                    <p>Diese Nutzungsbedingungen regeln die Nutzung des kostenlosen Palworld Server Control-Panels. Durch das Betreten der Website, das Lösen von Captchas oder das Starten der Server erklären Sie sich mit diesen Bedingungen einverstanden.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">2. Bereitstellung des Dienstes</h3>
+                    <p>Dieser Dienst wird vollständig kostenlos und „wie gesehen“ (as-is) zur Verfügung gestellt. Es besteht kein Anspruch auf ständige Verfügbarkeit (Uptime), Fehlerfreiheit, Wartung oder Erhalt Ihrer Weltdaten. Wir behalten uns das Recht vor, den Dienst jederzeit ohne Angabe von Gründen einzustellen oder einzuschränken.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">3. Nutzungsregeln und Missbrauch</h3>
+                    <p>Die automatisierte Nutzung des Dienstes (z. B. durch Bots, Skripte oder automatische Captcha-Solver) zur künstlichen Verlängerung der Serverlaufzeit ist strengstens untersagt. Jeder Versuch, die Sicherheitsbarrieren (Captcha, CSRF-Tokens) zu umgehen oder den Server durch übermäßige Anfragen zu überlasten, führt zum sofortigen Ausschluss.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">4. Haftungsausschluss</h3>
+                    <p>Wir übernehmen keinerlei Haftung für Schäden, die durch die Nutzung des Dienstes entstehen. Dies umfasst insbesondere den Verlust von Spieldaten (Weltsicherungen, Spielerfortschritte) oder Schäden am Client-Spiel.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">5. Marken und Urheberrechte</h3>
+                    <p>„Palworld“ ist eine eingetragene Marke von Pocketpair, Inc. Dieses Projekt steht in keinerlei Verbindung oder Partnerschaft mit Pocketpair, Inc.</p>
+                </section>
+            {{ else }}
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">1. Scope and Purpose</h3>
+                    <p>These Terms of Use govern the usage of this free Palworld Server Control panel. By accessing the website, solving captchas, or starting servers, you agree to these terms.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">2. Service Provision</h3>
+                    <p>This service is provided entirely free of charge and on an "as-is" basis. There is no entitlement to permanent uptime, error-free operations, maintenance, or data persistence. We reserve the right to restrict or terminate the service at any time without prior notice.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">3. Rules of Conduct and Abuse</h3>
+                    <p>Automated use of the service (e.g. via bots, scripts, or automatic captcha solvers) to artificially extend server runtime is strictly prohibited. Any attempt to bypass security measures (captcha, CSRF tokens) or disrupt operations will result in immediate termination of access.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">4. Disclaimer of Liability</h3>
+                    <p>We accept no liability for damages arising from the use of this service. This includes, without limitation, the loss of any game data (save files, player progress) or client-side game corruption.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">5. Trademarks and Copyrights</h3>
+                    <p>"Palworld" is a registered trademark of Pocketpair, Inc. This project is not affiliated with or endorsed by Pocketpair, Inc.</p>
+                </section>
+            {{ end }}
+        </div>
+
+        <div class="action-module" style="margin-top: 1.5rem;">
+            <a href="/{{ if .ServerID }}?srv={{ .ServerID }}{{ end }}" class="btn-outline" style="text-align: center;">
+                {{ if eq .Language "de" }}Zurück zur Startseite{{ else }}Back to Homepage{{ end }}
+            </a>
+        </div>
+    </div>
+</div>
+{{ end }}

@@ -144,6 +144,8 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/robots.txt", s.handleRobots)
 	mux.HandleFunc("/sitemap.xml", s.handleSitemap)
+	mux.HandleFunc("/terms", s.handleTerms)
+	mux.HandleFunc("/privacy", s.handlePrivacy)
 
 	fileServer := http.FileServer(http.Dir(s.staticDir))
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
@@ -642,3 +644,50 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"servers": servers,
 	})
 }
+
+func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
+	sessionData := getSession(r)
+	inst := s.resolveInstance(r)
+	if inst == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	lang := r.URL.Query().Get("lang")
+	if lang == "" {
+		lang = sessionData.Language
+	}
+	if lang != "de" && lang != "en" {
+		lang = "en"
+	}
+
+	s.renderTemplate(w, r, "terms.html", PageContext{
+		Language:            lang,
+		ServerID:            inst.ID,
+		DockerContainerName: inst.DisplayName,
+	})
+}
+
+func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
+	sessionData := getSession(r)
+	inst := s.resolveInstance(r)
+	if inst == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	lang := r.URL.Query().Get("lang")
+	if lang == "" {
+		lang = sessionData.Language
+	}
+	if lang != "de" && lang != "en" {
+		lang = "en"
+	}
+
+	s.renderTemplate(w, r, "privacy.html", PageContext{
+		Language:            lang,
+		ServerID:            inst.ID,
+		DockerContainerName: inst.DisplayName,
+	})
+}
+

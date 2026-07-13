@@ -377,6 +377,49 @@ func TestSEOEndpoints(t *testing.T) {
 	}
 }
 
+func TestPolicyEndpoints(t *testing.T) {
+	srv := newTestServer(t)
+
+	for _, path := range []string{"/terms", "/privacy"} {
+		for _, lang := range []string{"de", "en"} {
+			req := httptest.NewRequest("GET", path+"?lang="+lang, nil)
+			rr := httptest.NewRecorder()
+			
+			if path == "/terms" {
+				srv.handleTerms(rr, req)
+			} else {
+				srv.handlePrivacy(rr, req)
+			}
+
+			if rr.Code != http.StatusOK {
+				t.Errorf("%s (%s) returned code %d, expected 200", path, lang, rr.Code)
+			}
+
+			body := rr.Body.String()
+			if len(body) == 0 {
+				t.Errorf("%s (%s) returned empty body", path, lang)
+			}
+
+			// Verify language translations
+			if lang == "de" {
+				if path == "/terms" && !strings.Contains(body, "Nutzungsbedingungen") {
+					t.Errorf("terms page (de) does not contain German translation")
+				}
+				if path == "/privacy" && !strings.Contains(body, "Datenschutzerklärung") {
+					t.Errorf("privacy page (de) does not contain German translation")
+				}
+			} else {
+				if path == "/terms" && !strings.Contains(body, "Terms of Use") {
+					t.Errorf("terms page (en) does not contain English translation")
+				}
+				if path == "/privacy" && !strings.Contains(body, "Privacy Policy") {
+					t.Errorf("privacy page (en) does not contain English translation")
+				}
+			}
+		}
+	}
+}
+
 // TestAllTemplatesRender guards against a bad deploy 500-ing every page: each
 // content template must parse together with base.html and execute in both
 // languages.

@@ -1,0 +1,71 @@
+{{ define "title" }}{{ if eq .Language "de" }}Datenschutzerklärung{{ else }}Privacy Policy{{ end }}{{ end }}
+
+{{ define "content" }}
+<div class="panel">
+    <div class="panel-grid-accent" aria-hidden="true"></div>
+    <div class="panel-inner">
+        <div class="panel-header">
+            <div>
+                <span class="sys-label">[04] PRIVACY_POLICY</span>
+                <h2 class="sys-name">{{ if eq .Language "de" }}Datenschutzerklärung{{ else }}Privacy Policy{{ end }}</h2>
+            </div>
+            <nav class="footer-nav lang-switch">
+                <a href="?lang=de{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "de" }}active{{ end }}"><span class="flag flag-de" aria-hidden="true"></span>DE</a>
+                <a href="?lang=en{{ if .ServerID }}&srv={{ .ServerID }}{{ end }}" class="{{ if eq .Language "en" }}active{{ end }}"><span class="flag flag-en" aria-hidden="true"></span>EN</a>
+            </nav>
+        </div>
+
+        <div class="legal-content" style="margin-top: 1.5rem; max-height: 500px; overflow-y: auto; padding-right: 10px; font-size: 14px; line-height: 1.6; color: var(--on-surface-variant);">
+            {{ if eq .Language "de" }}
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">1. Datenverarbeitung auf dieser Website</h3>
+                    <p>Diese Website verarbeitet Daten zur Bereitstellung der Palworld Serversteuerung. Die Datenverarbeitung erfolgt auf Grundlage von Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der technischen Bereitstellung, Systemsicherheit und Missbrauchsabwehr).</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">2. Bereitstellung von Spieldaten (Palworld API)</h3>
+                    <p>Zur Statusanzeige werden aktuelle Spielerdaten (Spielernamen und Charakter-Level) live von den verwalteten Palworld-Servercontainern abgefragt und auf dieser Webseite öffentlich angezeigt. Diese Daten werden nicht dauerhaft gespeichert, sondern bei jedem Seitenaufruf direkt über die Schnittstelle des laufenden Spielservers geladen.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">3. Cookies und Sitzungsdaten</h3>
+                    <p>Wir verwenden ausschließlich technisch notwendige, verschlüsselte Session-Cookies. Diese enthalten keine personenbezogenen Tracking-Daten, sondern dienen der Speicherung Ihres Captcha-Status, Ihrer Sprachpräferenz sowie dem Schutz vor CSRF-Angriffen (Cross-Site Request Forgery). Diese Cookies werden gelöscht, wenn Sie Ihren Browser schließen oder die Sitzung abläuft.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">4. IP-Adressen und Server-Logs</h3>
+                    <p>Bei jedem Zugriff auf diese Webseite erfasst unser Webserver automatisch technische Daten. Dazu gehört auch Ihre IP-Adresse. Diese Erfassung ist technisch notwendig, um die Webseite auszuliefern, Angriffe abzuwehren und Missbrauch (z. B. durch Bots) zu verhindern. Logs werden nach gesetzlichen Fristen automatisch gelöscht.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">5. Drittanbieter-Ressourcen (Google Fonts)</h3>
+                    <p>Diese Seite bindet Schriftarten („Google Fonts“) des Anbieters Google LLC ein. Um diese Schriftarten anzuzeigen, baut Ihr Browser eine Verbindung zu Google-Servern auf, wodurch Ihre IP-Adresse an Google übertragen wird. Weitere Informationen finden Sie in der Datenschutzerklärung von Google unter: <a href="https://policies.google.com/privacy" target="_blank" style="color: var(--primary-container);">policies.google.com/privacy</a>.</p>
+                </section>
+            {{ else }}
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">1. Data Processing on this Website</h3>
+                    <p>This website processes data to provide the Palworld Server Control interface. Data processing is based on Art. 6 (1) (f) GDPR (legitimate interest in technical delivery, system security, and abuse prevention).</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">2. Display of Game Data (Palworld API)</h3>
+                    <p>To display active server status, current player information (player names and character levels) is queried in real-time from the running Palworld container and shown publicly. This data is not stored persistently; it is fetched dynamically upon each page load directly from the game's REST API.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">3. Cookies and Session Management</h3>
+                    <p>We use only strictly necessary, encrypted session cookies. These do not store personal tracking profiles; they are used solely to remember your captcha resolution, language toggles, and to protect forms against CSRF (Cross-Site Request Forgery) attacks. These cookies are destroyed when you close your browser or upon session expiry.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">4. IP Addresses and Access Logs</h3>
+                    <p>Upon accessing this website, our web server automatically processes technical connection data, including your IP address. This processing is technically required to serve the webpage, mitigate cyber-attacks, and prevent automated abuse (e.g. bots). Server logs are automatically purged in accordance with data retention regulations.</p>
+                </section>
+                <section style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--on-surface); margin-bottom: 0.5rem; font-family: var(--font-display);">5. Third-Party Resources (Google Fonts)</h3>
+                    <p>This website integrates web typography ("Google Fonts") provided by Google LLC. To display these fonts, your web browser establishes a direct connection to Google's servers, transmitting your IP address to Google. For more details, consult Google's Privacy Policy at: <a href="https://policies.google.com/privacy" target="_blank" style="color: var(--primary-container);">policies.google.com/privacy</a>.</p>
+                </section>
+            {{ end }}
+        </div>
+
+        <div class="action-module" style="margin-top: 1.5rem;">
+            <a href="/{{ if .ServerID }}?srv={{ .ServerID }}{{ end }}" class="btn-outline" style="text-align: center;">
+                {{ if eq .Language "de" }}Zurück zur Startseite{{ else }}Back to Homepage{{ end }}
+            </a>
+        </div>
+    </div>
+</div>
+{{ end }}
