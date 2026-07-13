@@ -48,10 +48,19 @@ Set the following environment variables:
 | `SERVER_ADDRESS` | Public game address shown on the page (IP:port) | `80.66.59.216:8211` |
 | `REST_API_HOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
 | `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://pal.wowcraft.pw/` |
+| `GOOGLE_SITE_VERIFICATION` | Google Search Console verification token | *Optional* |
+| `BING_SITE_VERIFICATION` | Bing Webmaster Tools verification token | *Optional* |
+| `YANDEX_SITE_VERIFICATION` | Yandex Webmaster verification token | *Optional* |
 | `SERVERS` | Comma-separated server ids to enable multi-server mode | *unset (single server)* |
 | `ADMIN_PASSWORD` | Palworld REST API admin password | *scraped from the game container's env* |
 | `SESSION_KEY` | Secret used to encrypt session cookies; set it so sessions survive restarts | *random per start* |
 | `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy) | *unset (loopback-only)* |
+
+### Search Engine Optimization & Verification
+
+- **Zero-Config Multi-domain SEO**: Sitemap URLs, `robots.txt` paths, and canonical `<link>` elements are dynamically resolved using the requesting host header (falling back to `WEBSITE_URL` if set). This ensures search engine crawlers index the correct domain (e.g., `freepalworld.wowcraft.pw`).
+- **Meta-Tag Verification**: Supply `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`, or `YANDEX_SITE_VERIFICATION` environment variables to automatically output verification tags into the landing page `<head>`.
+- **File-Based Verification**: Place custom Search Console HTML/XML files (e.g., `google*.html`, `yandex_*.html`, `pinterest-*.html`, `BingSiteAuth.xml`) directly inside the `static/` folder. The application serves them directly at the root (e.g., `/google123456789.html`).
 
 ### Multiple Servers
 

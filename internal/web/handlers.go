@@ -178,29 +178,52 @@ type PageContext struct {
 	CsrfToken           string
 	ServerAddress       string
 	BootEstimateSeconds int
-	Servers             []ServerPanel
-	AppVersion          string
-	SiteURL             string
+	Servers                []ServerPanel
+	AppVersion             string
+	SiteURL                string
+	GoogleSiteVerification string
+	BingSiteVerification   string
+	YandexSiteVerification string
 }
 
 // siteURL returns the public website base URL, always with a trailing slash.
-func siteURL() string {
-	u := game.WebsiteURL()
-	if !strings.HasSuffix(u, "/") {
-		u += "/"
+func (s *Server) siteURL(r *http.Request) string {
+	if u := os.Getenv("WEBSITE_URL"); u != "" {
+		if !strings.HasSuffix(u, "/") {
+			u += "/"
+		}
+		return u
 	}
-	return u
+	if r == nil {
+		u := game.WebsiteURL()
+		if !strings.HasSuffix(u, "/") {
+			u += "/"
+		}
+		return u
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
+		host = xfh
+	}
+	return scheme + "://" + host + "/"
 }
 
 var AppVersion = strconv.FormatInt(time.Now().Unix(), 10)
 
-func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx PageContext) {
+func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, tmplName string, ctx PageContext) {
 	if ctx.Language == "" {
 		ctx.Language = "de"
 	}
 
 	ctx.AppVersion = AppVersion
-	ctx.SiteURL = siteURL()
+	ctx.SiteURL = s.siteURL(r)
+	ctx.GoogleSiteVerification = os.Getenv("GOOGLE_SITE_VERIFICATION")
+	ctx.BingSiteVerification = os.Getenv("BING_SITE_VERIFICATION")
+	ctx.YandexSiteVerification = os.Getenv("YANDEX_SITE_VERIFICATION")
 	t, ok := s.templates[tmplName]
 	if !ok {
 		http.Error(w, "Unknown template: "+tmplName, http.StatusInternalServerError)
@@ -214,6 +237,27 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmplName string, ctx Page
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
+		// Support search engine verification files and favicons at root level
+		cleanPath := filepath.Clean(r.URL.Path)
+		if !strings.Contains(cleanPath, "..") {
+			name := filepath.Base(cleanPath)
+			// Check if it's a known verification pattern or icon
+			isAllowed := (strings.HasPrefix(name, "google") && strings.HasSuffix(name, ".html")) ||
+				(strings.HasPrefix(name, "yandex_") && strings.HasSuffix(name, ".html")) ||
+				(strings.HasPrefix(name, "pinterest-") && strings.HasSuffix(name, ".html")) ||
+				name == "BingSiteAuth.xml" ||
+				name == "favicon.ico" ||
+				name == "apple-touch-icon.png" ||
+				name == "apple-touch-icon-precomposed.png"
+
+			if isAllowed {
+				fullPath := filepath.Join(s.staticDir, name)
+				if _, err := os.Stat(fullPath); err == nil {
+					http.ServeFile(w, r, fullPath)
+					return
+				}
+			}
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -245,7 +289,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	s.renderTemplate(w, "index.html", PageContext{
+	s.renderTemplate(w, r, "index.html", PageContext{
 		Language:   sessionData.Language,
 		DiscordUrl: discord.InviteURL(),
 		Servers:    panels,
@@ -297,7 +341,7 @@ func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 			tmplName = "captcha_start.html"
 		}
 
-		s.renderTemplate(w, tmplName, PageContext{
+		s.renderTemplate(w, r, tmplName, PageContext{
 			Language:            lang,
 			DockerContainerName: inst.DisplayName,
 			ServerID:            inst.ID,
@@ -348,7 +392,7 @@ func (s *Server) handleCaptchaError(w http.ResponseWriter, r *http.Request) {
 	}
 	discordUrl := discord.InviteURL()
 
-	s.renderTemplate(w, "captcha_error.html", PageContext{
+	s.renderTemplate(w, r, "captcha_error.html", PageContext{
 		Language:    sessionData.Language,
 		ServerID:    inst.ID,
 		DiscordUrl:  discordUrl,
@@ -513,7 +557,7 @@ func (s *Server) handleStarting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.renderTemplate(w, "starting.html", PageContext{
+	s.renderTemplate(w, r, "starting.html", PageContext{
 		Language:            sessionData.Language,
 		DockerContainerName: inst.DisplayName,
 		ServerID:            inst.ID,
@@ -560,12 +604,12 @@ Disallow: /starting
 Disallow: /api/
 
 Sitemap: %ssitemap.xml
-`, siteURL())
+`, s.siteURL(r))
 }
 
 // handleSitemap serves a minimal sitemap: the landing page in both languages.
 func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
-	base := siteURL()
+	base := s.siteURL(r)
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">

@@ -280,6 +280,16 @@ func TestSEOEndpoints(t *testing.T) {
 		}
 	}
 
+	// Test dynamic siteURL detection
+	reqDynamic := httptest.NewRequest("GET", "/robots.txt", nil)
+	reqDynamic.Host = "test-host.local"
+	reqDynamic.Header.Set("X-Forwarded-Proto", "https")
+	rrDynamic := httptest.NewRecorder()
+	srv.handleRobots(rrDynamic, reqDynamic)
+	if !strings.Contains(rrDynamic.Body.String(), "Sitemap: https://test-host.local/sitemap.xml") {
+		t.Errorf("robots.txt sitemap URL was not dynamic, got body: %s", rrDynamic.Body.String())
+	}
+
 	// sitemap.xml must be a urlset with hreflang alternates.
 	rr = httptest.NewRecorder()
 	srv.handleSitemap(rr, httptest.NewRequest("GET", "/sitemap.xml", nil))
@@ -318,6 +328,53 @@ func TestSEOEndpoints(t *testing.T) {
 	if parsed["@context"] != "https://schema.org" {
 		t.Errorf("JSON-LD @context wrong: %v", parsed["@context"])
 	}
+
+	// Test verification meta tags via env variables
+	t.Setenv("GOOGLE_SITE_VERIFICATION", "g-verify-123")
+	t.Setenv("BING_SITE_VERIFICATION", "b-verify-456")
+	t.Setenv("YANDEX_SITE_VERIFICATION", "y-verify-789")
+
+	reqMeta := httptest.NewRequest("GET", "/", nil)
+	rrMeta := httptest.NewRecorder()
+	srv.handleIndex(rrMeta, reqMeta)
+	metaHTML := rrMeta.Body.String()
+	
+	for _, tag := range []string{
+		`<meta name="google-site-verification" content="g-verify-123">`,
+		`<meta name="msvalidate.01" content="b-verify-456">`,
+		`<meta name="yandex-verification" content="y-verify-789">`,
+	} {
+		if !strings.Contains(metaHTML, tag) {
+			t.Errorf("expected index to render meta tag %q", tag)
+		}
+	}
+
+	// Test root-level verification file serving
+	tmpStaticDir := t.TempDir()
+	verifyFile := "google12345abc.html"
+	verifyContent := "google-site-verification: google12345abc.html"
+	if err := os.WriteFile(filepath.Join(tmpStaticDir, verifyFile), []byte(verifyContent), 0644); err != nil {
+		t.Fatalf("failed to write temp verification file: %v", err)
+	}
+
+	testSrv := New([]*Instance{newInstance(t, "test")}, testTemplateDir, tmpStaticDir)
+
+	reqVerify := httptest.NewRequest("GET", "/"+verifyFile, nil)
+	rrVerify := httptest.NewRecorder()
+	testSrv.handleIndex(rrVerify, reqVerify)
+	if rrVerify.Code != http.StatusOK {
+		t.Errorf("expected 200 for verification file, got %d", rrVerify.Code)
+	}
+	if rrVerify.Body.String() != verifyContent {
+		t.Errorf("expected verification content %q, got %q", verifyContent, rrVerify.Body.String())
+	}
+
+	req404 := httptest.NewRequest("GET", "/google99999.html", nil)
+	rr404 := httptest.NewRecorder()
+	testSrv.handleIndex(rr404, req404)
+	if rr404.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for non-existent verification file, got %d", rr404.Code)
+	}
 }
 
 // TestAllTemplatesRender guards against a bad deploy 500-ing every page: each
@@ -338,7 +395,8 @@ func TestAllTemplatesRender(t *testing.T) {
 		}
 		for _, lang := range []string{"de", "en"} {
 			rr := httptest.NewRecorder()
-			srv.renderTemplate(rr, name, PageContext{
+			req := httptest.NewRequest("GET", "/", nil)
+			srv.renderTemplate(rr, req, name, PageContext{
 				Language:            lang,
 				DockerContainerName: "Test Server",
 				ServerID:            "test",

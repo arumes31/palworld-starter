@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ block "title" . }}Free Palworld Servers – Palworld Command Center{{ end }}</title>
+    {{ if .GoogleSiteVerification }}<meta name="google-site-verification" content="{{ .GoogleSiteVerification }}">{{ end }}
+    {{ if .BingSiteVerification }}<meta name="msvalidate.01" content="{{ .BingSiteVerification }}">{{ end }}
+    {{ if .YandexSiteVerification }}<meta name="yandex-verification" content="{{ .YandexSiteVerification }}">{{ end }}
     <meta name="description" content="{{ if eq .Language "de" }}Kostenlose Palworld Server – tritt unseren 24/7 Dedicated Servern gratis und ohne Anmeldung bei. Server per Captcha starten, deine Weltdaten bleiben für immer erhalten.{{ else }}Free Palworld servers – join our 24/7 dedicated servers at no cost, no signup needed. Start a server by solving a quick captcha; your world data is never wiped.{{ end }}">
     <meta name="keywords" content="free palworld server, palworld server, kostenlose palworld server, palworld dedicated server, palworld multiplayer server, join palworld server, palworld server kostenlos">
     <meta name="theme-color" content="#0d1421">
