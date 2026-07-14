@@ -188,6 +188,16 @@ type PageContext struct {
 	YandexSiteVerification string
 }
 
+// sanitizeHost removes any character from the host that is not a letter, digit, dot, colon, or dash.
+func sanitizeHost(h string) string {
+	return strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == ':' || r == '-' {
+			return r
+		}
+		return -1
+	}, h)
+}
+
 // siteURL returns the public website base URL, always with a trailing slash.
 func (s *Server) siteURL(r *http.Request) string {
 	if u := os.Getenv("WEBSITE_URL"); u != "" {
@@ -207,9 +217,9 @@ func (s *Server) siteURL(r *http.Request) string {
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	host := r.Host
+	host := sanitizeHost(r.Host)
 	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
-		host = xfh
+		host = sanitizeHost(xfh)
 	}
 	return scheme + "://" + host + "/"
 }
@@ -597,6 +607,7 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 // out of the captcha flow and the JSON endpoints.
 func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	// #nosec G705 // Content-Type is text/plain, and s.siteURL(r) is strictly sanitized
 	fmt.Fprintf(w, `User-agent: *
 Allow: /
 Disallow: /captcha
@@ -613,6 +624,7 @@ Sitemap: %ssitemap.xml
 func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	base := s.siteURL(r)
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	// #nosec G705 // Content-Type is application/xml, and s.siteURL(r) is strictly sanitized
 	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
