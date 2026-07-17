@@ -216,9 +216,16 @@ func (c *Controller) IsPaused() bool {
 	return paused
 }
 
-// fetchPlayers retrieves the full player list from the REST API. The public
+// fetchPlayers retrieves the player list from the REST API. The public
 // Players() view strips the user ids before exposing them; AdminPlayers()
 // returns them intact for kick/ban.
+//
+// Decoding is deliberately resilient: the game reports some numeric fields as
+// floats (e.g. ping) and its schema can shift between versions. A strict decode
+// of the admin fields must never knock out the public status/player list, so on
+// any decode error we fall back to the minimal name+level view. Returning
+// (nil,false) is reserved for a genuinely unreachable or erroring API, because
+// the caller reads that as "REST API down" (which renders as "starting").
 func (c *Controller) fetchPlayers() ([]AdminPlayerInfo, bool) {
 	req, _ := http.NewRequest("GET", c.endpoint("players"), nil)
 	c.authorize(req)
@@ -236,13 +243,40 @@ func (c *Controller) fetchPlayers() ([]AdminPlayerInfo, bool) {
 		return nil, false
 	}
 
-	var r struct {
-		Players []AdminPlayerInfo `json:"players"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[%s] fetchPlayers read error: %v", c.containerName, err)
 		return nil, false
 	}
-	return r.Players, true
+
+	// Preferred: full decode including the admin-only user ids.
+	var full struct {
+		Players []AdminPlayerInfo `json:"players"`
+	}
+	if err := json.Unmarshal(body, &full); err == nil {
+		return full.Players, true
+	}
+
+	// Fallback: a field type we do not model changed shape. Keep the public
+	// status and player list working with just name and level (floats accepted
+	// for both numeric fields), even though kick/ban user ids are unavailable
+	// this round.
+	var basic struct {
+		Players []struct {
+			Name  string  `json:"name"`
+			Level float64 `json:"level"`
+		} `json:"players"`
+	}
+	if err := json.Unmarshal(body, &basic); err != nil {
+		log.Printf("[%s] fetchPlayers decode error: %v", c.containerName, err)
+		return nil, false
+	}
+	log.Printf("[%s] fetchPlayers: full decode failed, using name/level fallback", c.containerName)
+	out := make([]AdminPlayerInfo, len(basic.Players))
+	for i, p := range basic.Players {
+		out[i] = AdminPlayerInfo{Name: p.Name, Level: int(p.Level)}
+	}
+	return out, true
 }
 
 type ServerMetrics struct {
