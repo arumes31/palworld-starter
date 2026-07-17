@@ -12,11 +12,11 @@ import (
 // adds the userId/playerId needed for kick/ban to the public PlayerInfo, but
 // still omits the player's IP address, which never leaves this process.
 type AdminPlayerInfo struct {
-	Name     string `json:"name"`
-	Level    int    `json:"level"`
-	UserID   string `json:"userId"`
-	PlayerID string `json:"playerId"`
-	Ping     int    `json:"ping"`
+	Name     string  `json:"name"`
+	Level    int     `json:"level"`
+	UserID   string  `json:"userId"`
+	PlayerID string  `json:"playerId"`
+	Ping     float64 `json:"ping"` // Palworld reports ping as a float (ms)
 }
 
 // awake reports whether the REST API can be reached without waking an
