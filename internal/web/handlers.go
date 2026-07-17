@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arumes31/palworld-starter/internal/admin"
 	"github.com/arumes31/palworld-starter/internal/captcha"
 	"github.com/arumes31/palworld-starter/internal/discord"
 	"github.com/arumes31/palworld-starter/internal/game"
@@ -46,12 +47,14 @@ type Server struct {
 	staticDir string
 	templates map[string]*template.Template
 	stopToken string
+	admin     *admin.Manager
 }
 
 // New creates the web server for the given server instances (at least one).
 // All templates are parsed once here; a broken template fails the process at
-// startup instead of 500-ing every request later.
-func New(instances []*Instance, templateDir, staticDir string) *Server {
+// startup instead of 500-ing every request later. adm may be nil, in which
+// case the admin GUI is not served.
+func New(instances []*Instance, templateDir, staticDir string, adm *admin.Manager) *Server {
 	byID := make(map[string]*Instance, len(instances))
 	for _, inst := range instances {
 		byID[inst.ID] = inst
@@ -62,6 +65,7 @@ func New(instances []*Instance, templateDir, staticDir string) *Server {
 		staticDir: staticDir,
 		templates: parseTemplates(templateDir),
 		stopToken: os.Getenv("STOP_TOKEN"),
+		admin:     adm,
 	}
 }
 
@@ -146,6 +150,7 @@ func (s *Server) Routes() *http.ServeMux {
 	mux.HandleFunc("/sitemap.xml", s.handleSitemap)
 	mux.HandleFunc("/terms", s.handleTerms)
 	mux.HandleFunc("/privacy", s.handlePrivacy)
+	s.registerAdminRoutes(mux)
 
 	fileServer := http.FileServer(http.Dir(s.staticDir))
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
@@ -169,23 +174,30 @@ type ServerPanel struct {
 
 // PageContext is the data passed to every template.
 type PageContext struct {
-	Language            string
-	DockerContainerName string
-	ServerID            string
-	Status              string
-	TimeRemaining       int
-	DiscordUrl          string
-	QuestionSegments    []captcha.Segment
-	RetryTarget         string
-	CsrfToken           string
-	ServerAddress       string
-	BootEstimateSeconds int
+	Language               string
+	DockerContainerName    string
+	ServerID               string
+	Status                 string
+	TimeRemaining          int
+	DiscordUrl             string
+	QuestionSegments       []captcha.Segment
+	RetryTarget            string
+	CsrfToken              string
+	ServerAddress          string
+	BootEstimateSeconds    int
 	Servers                []ServerPanel
 	AppVersion             string
 	SiteURL                string
 	GoogleSiteVerification string
 	BingSiteVerification   string
 	YandexSiteVerification string
+
+	// Admin GUI context.
+	AdminScope   string
+	AdminGlobal  bool
+	AdminServers []adminServerView
+	AdminError   string
+	AdminNotice  string
 }
 
 // sanitizeHost removes any character from the host that is not a letter, digit, dot, colon, or dash.
@@ -702,4 +714,3 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 		DockerContainerName: inst.DisplayName,
 	})
 }
-

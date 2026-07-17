@@ -29,7 +29,7 @@ func newInstance(t *testing.T, id string) *Instance {
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	return New([]*Instance{newInstance(t, "test")}, testTemplateDir, "../../static")
+	return New([]*Instance{newInstance(t, "test")}, testTemplateDir, "../../static", nil)
 }
 
 func TestSessionEncryptDecrypt(t *testing.T) {
@@ -145,7 +145,7 @@ func TestHandlePlayers(t *testing.T) {
 }
 
 func TestMultiServerResolution(t *testing.T) {
-	srv := New([]*Instance{newInstance(t, "alpha"), newInstance(t, "beta")}, testTemplateDir, "../../static")
+	srv := New([]*Instance{newInstance(t, "alpha"), newInstance(t, "beta")}, testTemplateDir, "../../static", nil)
 
 	// Unknown server ids must 404 instead of silently targeting server one.
 	reqUnknown := httptest.NewRequest("GET", "/api/players?srv=nope", nil)
@@ -357,7 +357,7 @@ func TestSEOEndpoints(t *testing.T) {
 		t.Fatalf("failed to write temp verification file: %v", err)
 	}
 
-	testSrv := New([]*Instance{newInstance(t, "test")}, testTemplateDir, tmpStaticDir)
+	testSrv := New([]*Instance{newInstance(t, "test")}, testTemplateDir, tmpStaticDir, nil)
 
 	reqVerify := httptest.NewRequest("GET", "/"+verifyFile, nil)
 	rrVerify := httptest.NewRecorder()

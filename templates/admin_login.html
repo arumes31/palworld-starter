@@ -1,0 +1,31 @@
+{{ define "title" }}Admin Login – Palworld Command Center{{ end }}
+
+{{ define "head" }}<meta name="robots" content="noindex, nofollow">{{ end }}
+
+{{ define "content" }}
+<div class="page-stack admin-stack">
+    <header class="page-intro">
+        <span class="sys-label">PALWORLD-COMMAND-CENTER</span>
+        <h1>Admin Access</h1>
+        <p>Sign in to manage servers, announcements and scheduled reboots.</p>
+    </header>
+
+    <div class="panel admin-login-panel">
+        <div class="panel-grid-accent" aria-hidden="true"></div>
+        <div class="panel-inner">
+            {{ if .AdminError }}<div class="admin-banner error">Invalid password.</div>{{ end }}
+            <form method="POST" action="/admin/login" class="admin-form" autocomplete="off">
+                <input type="hidden" name="csrf_token" value="{{ .CsrfToken }}">
+                <label class="admin-field">
+                    <span class="data-label">Password</span>
+                    <input type="password" name="password" required autofocus class="admin-input" placeholder="••••••••">
+                </label>
+                <button type="submit" class="btn-primary">Sign in</button>
+            </form>
+            <p class="admin-hint">
+                Use the global admin password, or a server-specific password to manage a single server.
+            </p>
+        </div>
+    </div>
+</div>
+{{ end }}

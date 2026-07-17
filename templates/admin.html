@@ -1,0 +1,317 @@
+{{ define "title" }}Admin Dashboard – Palworld Command Center{{ end }}
+
+{{ define "head" }}<meta name="robots" content="noindex, nofollow">{{ end }}
+
+{{ define "content" }}
+<div class="page-stack admin-stack">
+    <header class="page-intro admin-topbar">
+        <div>
+            <span class="sys-label">PALWORLD-COMMAND-CENTER</span>
+            <h1>Admin Dashboard</h1>
+            <p>
+                {{ if .AdminGlobal }}Global access – all servers.{{ else }}Scoped access – server <strong>{{ .AdminScope }}</strong> only.{{ end }}
+            </p>
+        </div>
+        <form method="POST" action="/admin/logout" class="admin-inline">
+            <input type="hidden" name="csrf_token" value="{{ .CsrfToken }}">
+            <button type="submit" class="btn-outline">Log out</button>
+        </form>
+    </header>
+
+    {{ if .AdminNotice }}<div class="admin-banner ok">{{ .AdminNotice }}</div>{{ end }}
+    {{ if .AdminError }}<div class="admin-banner error">{{ .AdminError }}</div>{{ end }}
+
+    {{ range .AdminServers }}
+    <section class="panel admin-panel" data-srv="{{ .ID }}" data-status="{{ .Status }}"
+             {{ if .RebootActive }}data-reboot-target="{{ .RebootTargetUnix }}"{{ end }}>
+        <div class="panel-grid-accent" aria-hidden="true"></div>
+        <div class="panel-inner">
+            <div class="panel-header">
+                <div>
+                    <span class="sys-label">[{{ .ID }}] SYS_ID</span>
+                    <h2 class="sys-name">{{ .Name }}</h2>
+                    {{ if .Address }}<span class="sys-version">{{ .Address }}</span>{{ end }}
+                </div>
+                <div class="chip-stack">
+                    <div class="status-chip {{ .Status }}">
+                        <span class="status-dot"></span><span>{{ title .Status }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-rows admin-datarows">
+                <div class="data-row accent">
+                    <span class="data-label">Remaining Time</span>
+                    <span class="data-value primary" data-remaining="{{ .TimeRemaining }}">–</span>
+                </div>
+                <div class="data-row">
+                    <span class="data-label">REST API</span>
+                    <span class="data-value">{{ if .Joinable }}Online{{ else }}Unavailable{{ end }}</span>
+                </div>
+            </div>
+
+            {{ if .RebootActive }}
+            <div class="admin-banner reboot">
+                <span>Reboot in progress – executing at <strong data-reboot-clock>…</strong></span>
+                <form method="POST" action="/admin/action" class="admin-inline">
+                    <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                    <input type="hidden" name="srv" value="{{ .ID }}">
+                    <input type="hidden" name="action" value="cancel_reboot">
+                    <button type="submit" class="btn-danger">Cancel reboot</button>
+                </form>
+            </div>
+            {{ end }}
+
+            <!-- Quick actions -->
+            <div class="admin-section">
+                <h3 class="admin-h3">Server control</h3>
+                <div class="admin-actions">
+                    <form method="POST" action="/admin/action" class="admin-inline">
+                        <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                        <input type="hidden" name="srv" value="{{ .ID }}">
+                        <input type="hidden" name="action" value="start">
+                        <button type="submit" class="btn-outline">Start</button>
+                    </form>
+                    <form method="POST" action="/admin/action" class="admin-inline">
+                        <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                        <input type="hidden" name="srv" value="{{ .ID }}">
+                        <input type="hidden" name="action" value="stop">
+                        <button type="submit" class="btn-outline">Stop</button>
+                    </form>
+                    <form method="POST" action="/admin/action" class="admin-inline">
+                        <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                        <input type="hidden" name="srv" value="{{ .ID }}">
+                        <input type="hidden" name="action" value="save">
+                        <button type="submit" class="btn-outline">Save world</button>
+                    </form>
+                    <form method="POST" action="/admin/action" class="admin-inline admin-reboot-now">
+                        <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                        <input type="hidden" name="srv" value="{{ .ID }}">
+                        <input type="hidden" name="action" value="reboot">
+                        <select name="lead" class="admin-input">
+                            <option value="600">Announce 10 min</option>
+                            <option value="300">Announce 5 min</option>
+                            <option value="120">Announce 2 min</option>
+                            <option value="60">Announce 1 min</option>
+                            <option value="10">Announce 10 sec</option>
+                        </select>
+                        <button type="submit" class="btn-primary">Reboot now</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Announce -->
+            <div class="admin-section">
+                <h3 class="admin-h3">Broadcast announcement</h3>
+                <form method="POST" action="/admin/action" class="admin-row-form">
+                    <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                    <input type="hidden" name="srv" value="{{ .ID }}">
+                    <input type="hidden" name="action" value="announce">
+                    <input type="text" name="message" class="admin-input grow" maxlength="200"
+                           placeholder="Message shown to all online players" required>
+                    <button type="submit" class="btn-outline">Send</button>
+                </form>
+            </div>
+
+            <!-- Players -->
+            <div class="admin-section">
+                <h3 class="admin-h3">Players online (<span data-player-count>–</span>)</h3>
+                <ul class="admin-player-list" data-player-list>
+                    <li class="admin-muted">Loading…</li>
+                </ul>
+                <form method="POST" action="/admin/action" class="admin-row-form">
+                    <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                    <input type="hidden" name="srv" value="{{ .ID }}">
+                    <input type="hidden" name="action" value="unban">
+                    <input type="text" name="userid" class="admin-input grow" placeholder="Unban by user id (e.g. steam_0123…)" required>
+                    <button type="submit" class="btn-outline">Unban</button>
+                </form>
+            </div>
+
+            <!-- Scheduled reboots -->
+            <div class="admin-section">
+                <h3 class="admin-h3">Scheduled reboots</h3>
+                {{ if .Jobs }}
+                <table class="admin-table">
+                    <thead><tr><th>Type</th><th>Time</th><th>Lead</th><th>Next run</th><th>State</th><th></th></tr></thead>
+                    <tbody>
+                    {{ range .Jobs }}
+                    <tr class="{{ if not .Enabled }}admin-disabled{{ end }}">
+                        <td>{{ if eq .Type "daily" }}Daily{{ else }}Once{{ end }}</td>
+                        <td>{{ .Time }}</td>
+                        <td>{{ .LeadSeconds }}s</td>
+                        <td>{{ .NextRun }}</td>
+                        <td>{{ if .Enabled }}Enabled{{ else }}Paused{{ end }}</td>
+                        <td class="admin-row-actions">
+                            <form method="POST" action="/admin/schedule" class="admin-inline">
+                                <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                                <input type="hidden" name="srv" value="{{ .ServerID }}">
+                                <input type="hidden" name="op" value="toggle">
+                                <input type="hidden" name="id" value="{{ .ID }}">
+                                <button type="submit" class="btn-mini">{{ if .Enabled }}Pause{{ else }}Enable{{ end }}</button>
+                            </form>
+                            <form method="POST" action="/admin/schedule" class="admin-inline">
+                                <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                                <input type="hidden" name="srv" value="{{ .ServerID }}">
+                                <input type="hidden" name="op" value="delete">
+                                <input type="hidden" name="id" value="{{ .ID }}">
+                                <button type="submit" class="btn-mini danger">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{ end }}
+                    </tbody>
+                </table>
+                {{ else }}
+                <p class="admin-muted">No scheduled reboots.</p>
+                {{ end }}
+
+                <form method="POST" action="/admin/schedule" class="admin-schedule-form">
+                    <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                    <input type="hidden" name="srv" value="{{ .ID }}">
+                    <input type="hidden" name="op" value="add">
+                    <select name="type" class="admin-input js-sched-type">
+                        <option value="daily">Daily</option>
+                        <option value="once">One-time</option>
+                    </select>
+                    <input type="time" name="time" class="admin-input js-sched-daily" value="04:00">
+                    <input type="datetime-local" name="time" class="admin-input js-sched-once" disabled hidden>
+                    <select name="lead" class="admin-input">
+                        <option value="600">10 min warning</option>
+                        <option value="300">5 min warning</option>
+                        <option value="120">2 min warning</option>
+                        <option value="60">1 min warning</option>
+                    </select>
+                    <button type="submit" class="btn-outline">Add schedule</button>
+                </form>
+            </div>
+
+            {{ if $.AdminGlobal }}
+            <!-- Per-server password (global admins only) -->
+            <div class="admin-section">
+                <h3 class="admin-h3">Server-only password
+                    <span class="admin-pill {{ if .HasPassword }}on{{ end }}">{{ if .HasPassword }}Set{{ else }}Not set{{ end }}</span>
+                </h3>
+                <p class="admin-muted">Grants admin access to this server only.</p>
+                <form method="POST" action="/admin/password" class="admin-row-form" autocomplete="off">
+                    <input type="hidden" name="csrf_token" value="{{ $.CsrfToken }}">
+                    <input type="hidden" name="srv" value="{{ .ID }}">
+                    <input type="password" name="password" class="admin-input grow" placeholder="New password (leave empty to clear)">
+                    <button type="submit" class="btn-outline">Save</button>
+                </form>
+            </div>
+            {{ end }}
+        </div>
+    </section>
+    {{ end }}
+</div>
+{{ end }}
+
+{{ define "scripts" }}
+<script>
+    const CSRF = "{{ .CsrfToken }}";
+
+    function fmtTime(sec) {
+        if (sec < 0) sec = 0;
+        const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+        const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+        const s = String(sec % 60).padStart(2, '0');
+        return `${h}h ${m}m ${s}s`;
+    }
+
+    // Submit an admin action as a POST form (used for per-player kick/ban).
+    function postAction(srv, action, fields) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/admin/action';
+        const base = Object.assign({ csrf_token: CSRF, srv: srv, action: action }, fields || {});
+        for (const [k, v] of Object.entries(base)) {
+            const i = document.createElement('input');
+            i.type = 'hidden'; i.name = k; i.value = v;
+            form.appendChild(i);
+        }
+        document.body.appendChild(form);
+        form.submit();
+    }
+
+    function renderPlayers(card, data) {
+        const list = card.querySelector('[data-player-list]');
+        const countEl = card.querySelector('[data-player-count]');
+        const srv = card.dataset.srv;
+        countEl.textContent = data.count;
+        list.innerHTML = '';
+        if (!data.players || data.players.length === 0) {
+            const li = document.createElement('li');
+            li.className = 'admin-muted';
+            li.textContent = data.joinable ? 'No players online.' : 'Server offline or unreachable.';
+            list.appendChild(li);
+            return;
+        }
+        data.players.forEach(p => {
+            const li = document.createElement('li');
+            const info = document.createElement('span');
+            info.textContent = p.name + (p.level > 0 ? ' (Lv. ' + p.level + ')' : '');
+            const btns = document.createElement('span');
+            btns.className = 'admin-player-btns';
+            const kick = document.createElement('button');
+            kick.type = 'button'; kick.className = 'btn-mini'; kick.textContent = 'Kick';
+            kick.onclick = () => { if (confirm('Kick ' + p.name + '?')) postAction(srv, 'kick', { userid: p.userId, message: 'You were kicked.' }); };
+            const ban = document.createElement('button');
+            ban.type = 'button'; ban.className = 'btn-mini danger'; ban.textContent = 'Ban';
+            ban.onclick = () => { if (confirm('Ban ' + p.name + '?')) postAction(srv, 'ban', { userid: p.userId, message: 'You were banned.' }); };
+            btns.appendChild(kick); btns.appendChild(ban);
+            li.appendChild(info); li.appendChild(btns);
+            list.appendChild(li);
+        });
+    }
+
+    async function refresh(card) {
+        try {
+            const resp = await fetch('/admin/api/players?srv=' + encodeURIComponent(card.dataset.srv));
+            if (!resp.ok) return;
+            renderPlayers(card, await resp.json());
+        } catch (e) { /* keep last state */ }
+    }
+
+    document.querySelectorAll('.admin-panel').forEach(card => {
+        // Live remaining-time counter.
+        const remEl = card.querySelector('[data-remaining]');
+        if (remEl) {
+            const running = card.dataset.status === 'running' || card.dataset.status === 'starting';
+            if (running) {
+                const deadline = Date.now() + parseInt(remEl.dataset.remaining, 10) * 1000;
+                const tick = () => { remEl.textContent = fmtTime(Math.round((deadline - Date.now()) / 1000)); setTimeout(tick, 1000); };
+                tick();
+            } else {
+                remEl.textContent = 'Offline';
+            }
+        }
+
+        // Reboot countdown clock.
+        const target = card.dataset.rebootTarget;
+        const clock = card.querySelector('[data-reboot-clock]');
+        if (target && clock) {
+            const t = parseInt(target, 10) * 1000;
+            const tick = () => { clock.textContent = fmtTime(Math.round((t - Date.now()) / 1000)); setTimeout(tick, 1000); };
+            tick();
+        }
+
+        // Schedule type toggle (daily time vs one-time datetime).
+        const typeSel = card.querySelector('.js-sched-type');
+        if (typeSel) {
+            const daily = card.querySelector('.js-sched-daily');
+            const once = card.querySelector('.js-sched-once');
+            const sync = () => {
+                const isDaily = typeSel.value === 'daily';
+                daily.hidden = !isDaily; daily.disabled = !isDaily;
+                once.hidden = isDaily; once.disabled = isDaily;
+            };
+            typeSel.addEventListener('change', sync);
+            sync();
+        }
+
+        refresh(card);
+        setInterval(() => refresh(card), 15000);
+    });
+</script>
+{{ end }}

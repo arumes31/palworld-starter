@@ -16,6 +16,11 @@ services:
       - STATE_DIR=/data
       - DOCKER_CONTAINER_NAME=palworld-server
       - REST_API_HOST=palworld-server
+      # Admin GUI at /admin is disabled until a password is set.
+      # Uncomment and set a STRONG password to enable it:
+      # - ADMIN_GUI_PASSWORD=please-change-me
+      # Timezone used for scheduled (daily/one-time) reboots. Defaults to UTC.
+      - TZ=Europe/Vienna
     networks:
       - default
       - test_server
