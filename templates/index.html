@@ -43,6 +43,11 @@
                 </div>
             </div>
 
+            <div class="reboot-notice" id="reboot-notice-{{ .ID }}" data-reboot-target="{{ .RebootTargetUnix }}" {{ if not .RebootActive }}hidden{{ end }}>
+                <span class="reboot-notice-dot" aria-hidden="true"></span>
+                <span>{{ if eq $lang "de" }}Server-Neustart in{{ else }}Server reboot in{{ end }} <strong id="reboot-clock-{{ .ID }}">…</strong></span>
+            </div>
+
             <div class="data-rows">
                 <div class="data-row accent">
                     <span class="data-label">
@@ -211,11 +216,34 @@
         return `${h}h ${m}m ${s}s`;
     }
 
+    function applyReboot(id, active, targetUnix) {
+        const notice = document.getElementById('reboot-notice-' + id);
+        if (!notice) return;
+        if (active && targetUnix > 0) {
+            notice.dataset.rebootTarget = targetUnix;
+            notice.hidden = false;
+        } else {
+            notice.hidden = true;
+        }
+    }
+
+    // Tick every reboot countdown once a second.
+    setInterval(() => {
+        document.querySelectorAll('.reboot-notice:not([hidden])').forEach(notice => {
+            const target = parseInt(notice.dataset.rebootTarget, 10) * 1000;
+            const clock = notice.querySelector('strong');
+            if (!clock) return;
+            const left = Math.round((target - Date.now()) / 1000);
+            clock.textContent = left > 0 ? formatTime(left) : (lang === 'de' ? 'jetzt' : 'now');
+        });
+    }, 1000);
+
     async function refreshPlayers(s) {
         try {
             const resp = await fetch('/api/players?srv=' + encodeURIComponent(s.ID));
             if (!resp.ok) return;
             const data = await resp.json();
+            applyReboot(s.ID, data.reboot, data.reboot_target);
             document.getElementById('player-count-' + s.ID).textContent = data.count;
             if (data.fps > 0) {
                 document.getElementById('fps-' + s.ID).textContent = data.fps + ' FPS';

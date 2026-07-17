@@ -59,6 +59,20 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/api/players", s.handleAdminPlayers)
 }
 
+// rebootStatus reports the target time of an in-progress reboot for a server,
+// if any. Safe to call from the public pages: it tolerates a nil manager and
+// works whether or not the admin GUI itself is enabled.
+func (s *Server) rebootStatus(serverID string) (targetUnix int64, active bool) {
+	if s.admin == nil {
+		return 0, false
+	}
+	t, ok := s.admin.ActiveReboot(serverID)
+	if !ok {
+		return 0, false
+	}
+	return t.Unix(), true
+}
+
 // adminScope returns the caller's admin scope, or "" when not authenticated.
 func (s *Server) adminScope(sd *SessionData) string {
 	if sd.AdminScope == "" || sd.AdminExpires < time.Now().Unix() {
