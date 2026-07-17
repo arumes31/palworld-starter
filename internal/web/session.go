@@ -42,6 +42,11 @@ type SessionData struct {
 	LastCaptcha   string `json:"last_captcha"`
 	Language      string `json:"language"`
 	CsrfToken     string `json:"csrf_token"`
+
+	// Admin session. AdminScope is admin.ScopeAll ("*") for a global admin or
+	// a single server id for a per-server admin; empty when not logged in.
+	AdminScope   string `json:"admin_scope,omitempty"`
+	AdminExpires int64  `json:"admin_expires,omitempty"` // unix; admin session validity
 }
 
 func getSession(r *http.Request) *SessionData {

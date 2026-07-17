@@ -53,6 +53,7 @@ Set the following environment variables:
 | `YANDEX_SITE_VERIFICATION` | Yandex Webmaster verification token | *Optional* |
 | `SERVERS` | Comma-separated server ids to enable multi-server mode | *unset (single server)* |
 | `ADMIN_PASSWORD` | Palworld REST API admin password | *scraped from the game container's env* |
+| `ADMIN_GUI_PASSWORD` | Global admin-GUI login password. Enables the admin GUI at `/admin` when set | *unset (admin GUI disabled)* |
 | `SESSION_KEY` | Secret used to encrypt session cookies; set it so sessions survive restarts | *random per start* |
 | `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy) | *unset (loopback-only)* |
 
@@ -76,6 +77,7 @@ variables (id uppercased, non-alphanumeric characters replaced by `_`):
 | `SERVER_<ID>_RESTHOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
 | `SERVER_<ID>_RESTPORT` | Host port of the container's Palworld REST API | `8212` |
 | `SERVER_<ID>_ADMIN_PASSWORD` | REST API admin password for this server | `ADMIN_PASSWORD` |
+| `SERVER_<ID>_ADMIN_GUI_PASSWORD` | Seeds a per-server admin-GUI password granting access to this server only | *unset* |
 
 Example:
 
@@ -97,6 +99,55 @@ environment:
 Each server keeps its own timer (`/hostmem/gamecontroller-<id>-time_remaining.json`),
 tickers, backups and boot page; without `SERVERS` the legacy single-server
 variables keep working unchanged.
+
+---
+
+## Admin GUI
+
+Set `ADMIN_GUI_PASSWORD` to enable an authenticated admin dashboard at **`/admin`**.
+Without it the admin routes are not registered at all (they return 404).
+
+### Access model
+
+- The **global password** (`ADMIN_GUI_PASSWORD`) grants access to every managed
+  server.
+- Each server can additionally have its own **server-only password** that grants
+  admin access to that one server. Global admins set these from the dashboard
+  (*Server-only password* card), or you can seed them from the environment with
+  `SERVER_<ID>_ADMIN_GUI_PASSWORD`. Per-server passwords are stored salted and
+  hashed (SHA-256) in `admin.json` in the state directory.
+
+Login is a single password field: the app resolves it to the matching scope.
+Sessions are the same encrypted cookies used elsewhere and last 8 hours. All
+admin actions are CSRF-protected.
+
+### Actions per server
+
+- **Announce** – broadcast a message to online players.
+- **Kick / Ban** – one click on a live player (uses the REST API user id),
+  plus an **Unban by user id** field.
+- **Save world**, **Start**, **Stop**.
+- **Reboot now** – graceful restart with a choice of announcement lead time.
+- **Cancel reboot** – abort an in-progress reboot.
+
+### Scheduled reboots
+
+Add **daily** (at `HH:MM`) or **one-time** (at a specific date/time) reboots per
+server. Each schedule has an announcement lead time (default 10 minutes). Times
+are interpreted in the container's local timezone — set the `TZ` environment
+variable to control it (defaults to UTC).
+
+Before a reboot, players are warned in-game on this cadence, counting down to the
+restart:
+
+- every **minute** while more than a minute remains (10, 9, … 1 min),
+- every **10 seconds** under a minute (50s, 40s, 30s),
+- every **second** under 30 seconds (30, 29, … 1s).
+
+Announcements are only sent while players are online; an empty (or auto-paused)
+server is restarted immediately without a countdown. A freshly rebooted server is
+kept alive for at least an hour so the idle timer does not stop it again right
+away.
 
 ---
 

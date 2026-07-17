@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arumes31/palworld-starter/internal/admin"
 	"github.com/arumes31/palworld-starter/internal/discord"
 	"github.com/arumes31/palworld-starter/internal/game"
 	"github.com/arumes31/palworld-starter/internal/state"
@@ -220,6 +221,29 @@ func startDiscordRefreshTicker(ctx context.Context) {
 	})
 }
 
+// buildAdminManager wires the admin control layer to the managed instances and
+// starts its reboot scheduler. The GUI is enabled only when ADMIN_GUI_PASSWORD
+// is set; per-server passwords can be seeded from SERVER_<ID>_ADMIN_GUI_PASSWORD.
+func buildAdminManager(ctx context.Context, instances []*web.Instance, stateDir string) *admin.Manager {
+	refs := make([]admin.ServerRef, 0, len(instances))
+	seeds := make(map[string]string)
+	for _, inst := range instances {
+		refs = append(refs, admin.ServerRef{
+			ID:      inst.ID,
+			Name:    inst.DisplayName,
+			Address: inst.Address,
+			Ctrl:    inst.Game,
+			State:   inst.State,
+		})
+		if pw := os.Getenv("SERVER_" + envKey(inst.ID) + "_ADMIN_GUI_PASSWORD"); pw != "" {
+			seeds[inst.ID] = pw
+		}
+	}
+	mgr := admin.NewManager(filepath.Join(stateDir, "admin.json"), refs, os.Getenv("ADMIN_GUI_PASSWORD"), seeds)
+	mgr.Start(ctx)
+	return mgr
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -241,7 +265,14 @@ func main() {
 	}
 	startDiscordRefreshTicker(ctx)
 
-	srv := web.New(instances, "templates", "./static")
+	adminMgr := buildAdminManager(ctx, instances, envOr("STATE_DIR", "/hostmem"))
+	if adminMgr.Enabled() {
+		log.Println("Admin GUI enabled at /admin")
+	} else {
+		log.Println("Admin GUI disabled (set ADMIN_GUI_PASSWORD to enable)")
+	}
+
+	srv := web.New(instances, "templates", "./static", adminMgr)
 
 	// No WriteTimeout: /stop legitimately blocks for the graceful in-game
 	// shutdown countdown, which can exceed a minute.
