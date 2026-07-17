@@ -207,6 +207,32 @@ func TestAdminScheduleAddAndList(t *testing.T) {
 	}
 }
 
+func TestPublicPlayersIncludesRebootFields(t *testing.T) {
+	// The public /api/players feed carries reboot status so the status page can
+	// show a reboot-in-progress banner. With no active reboot it must report
+	// reboot=false and reboot_target=0 (and tolerate a nil admin manager).
+	srv := newTestServer(t) // admin manager is nil here
+	rr := httptest.NewRecorder()
+	srv.handlePlayers(rr, httptest.NewRequest("GET", "/api/players", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	if _, ok := body["reboot"]; !ok {
+		t.Error("response missing reboot field")
+	}
+	if _, ok := body["reboot_target"]; !ok {
+		t.Error("response missing reboot_target field")
+	}
+	if body["reboot"] != false {
+		t.Errorf("expected reboot=false, got %v", body["reboot"])
+	}
+}
+
 func TestAdminPlayersScoped(t *testing.T) {
 	srv, _ := newAdminServer(t, "secret")
 	cookie := adminCookie(t, "alpha", "tok")

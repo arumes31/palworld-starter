@@ -45,7 +45,7 @@ type Controller struct {
 	passwordFromEnv bool
 
 	playersMu    sync.Mutex
-	playersCache []PlayerInfo
+	playersCache []AdminPlayerInfo // full records; the public view strips user ids
 	apiUpCache   bool
 	playersTime  time.Time
 
@@ -216,7 +216,10 @@ func (c *Controller) IsPaused() bool {
 	return paused
 }
 
-func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
+// fetchPlayers retrieves the full player list from the REST API. The public
+// Players() view strips the user ids before exposing them; AdminPlayers()
+// returns them intact for kick/ban.
+func (c *Controller) fetchPlayers() ([]AdminPlayerInfo, bool) {
 	req, _ := http.NewRequest("GET", c.endpoint("players"), nil)
 	c.authorize(req)
 
@@ -234,14 +237,13 @@ func (c *Controller) fetchPlayers() ([]PlayerInfo, bool) {
 	}
 
 	var r struct {
-		Players []PlayerInfo `json:"players"`
+		Players []AdminPlayerInfo `json:"players"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 		return nil, false
 	}
 	return r.Players, true
 }
-
 
 type ServerMetrics struct {
 	ServerFPS int `json:"serverfps"`
@@ -399,7 +401,7 @@ func (c *Controller) refreshPlayersLocked() {
 		return
 	}
 
-	var players []PlayerInfo
+	var players []AdminPlayerInfo
 	apiUp := false
 	if c.CachedStatus() == "running" && !c.IsPaused() {
 		players, apiUp = c.fetchPlayers()
@@ -411,12 +413,17 @@ func (c *Controller) refreshPlayersLocked() {
 
 // Players returns the current player list from the cache, refreshing it when
 // stale. Website visitors polling this never fan out into extra calls
-// against the game server.
+// against the game server. User ids are stripped: the public view is name and
+// level only.
 func (c *Controller) Players() []PlayerInfo {
 	c.playersMu.Lock()
 	defer c.playersMu.Unlock()
 	c.refreshPlayersLocked()
-	return c.playersCache
+	out := make([]PlayerInfo, len(c.playersCache))
+	for i, p := range c.playersCache {
+		out[i] = PlayerInfo{Name: p.Name, Level: p.Level}
+	}
+	return out
 }
 
 // RestAPIUp reports whether the last players refresh reached the game's REST

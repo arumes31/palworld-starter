@@ -162,14 +162,16 @@ func (s *Server) Routes() *http.ServeMux {
 // the game's REST API is not up yet, i.e. the server is booting and not
 // joinable.
 type ServerPanel struct {
-	ID            string
-	DisplayName   string
-	Address       string
-	Status        string
-	TimeRemaining int
-	Metrics       game.ServerMetrics
-	GameVersion   string
-	GameMode      string // "pvp", "pve" or "" while unknown
+	ID               string
+	DisplayName      string
+	Address          string
+	Status           string
+	TimeRemaining    int
+	Metrics          game.ServerMetrics
+	GameVersion      string
+	GameMode         string // "pvp", "pve" or "" while unknown
+	RebootActive     bool
+	RebootTargetUnix int64
 }
 
 // PageContext is the data passed to every template.
@@ -301,15 +303,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		if status == "running" && !inst.Game.IsPaused() && !inst.Game.RestAPIUp() {
 			status = "starting"
 		}
+		rebootTarget, rebootActive := s.rebootStatus(inst.ID)
 		panels = append(panels, ServerPanel{
-			ID:            inst.ID,
-			DisplayName:   inst.DisplayName,
-			Address:       inst.Address,
-			Status:        status,
-			TimeRemaining: inst.State.GetTimeRemaining(),
-			Metrics:       inst.Game.Metrics(),
-			GameVersion:   inst.Game.Info().Version,
-			GameMode:      inst.Game.GameMode(),
+			ID:               inst.ID,
+			DisplayName:      inst.DisplayName,
+			Address:          inst.Address,
+			Status:           status,
+			TimeRemaining:    inst.State.GetTimeRemaining(),
+			Metrics:          inst.Game.Metrics(),
+			GameVersion:      inst.Game.Info().Version,
+			GameMode:         inst.Game.GameMode(),
+			RebootActive:     rebootActive,
+			RebootTargetUnix: rebootTarget,
 		})
 	}
 
@@ -603,15 +608,19 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 		players = []game.PlayerInfo{}
 	}
 
+	rebootTarget, rebootActive := s.rebootStatus(inst.ID)
+
 	w.Header().Set("Content-Type", "application/json")
 	metrics := inst.Game.Metrics()
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"server":   inst.ID,
-		"status":   inst.Game.CachedStatus(),
-		"count":    len(players),
-		"players":  players,
-		"joinable": inst.Game.RestAPIUp(),
-		"fps":      metrics.ServerFPS,
+		"server":        inst.ID,
+		"status":        inst.Game.CachedStatus(),
+		"count":         len(players),
+		"players":       players,
+		"joinable":      inst.Game.RestAPIUp(),
+		"fps":           metrics.ServerFPS,
+		"reboot":        rebootActive,
+		"reboot_target": rebootTarget,
 	})
 }
 

@@ -904,6 +904,31 @@ body {
     border: 0;
 }
 
+/* ==== Reboot-in-progress notice (public status panel) ==== */
+.reboot-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.9rem;
+    background: rgba(254, 183, 0, 0.08);
+    border-left: 3px solid var(--secondary-container);
+    color: var(--secondary);
+    font-size: 13px;
+    font-weight: 600;
+}
+.reboot-notice[hidden] { display: none; }
+.reboot-notice strong { color: var(--secondary); font-variant-numeric: tabular-nums; }
+.reboot-notice-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--secondary-container);
+    box-shadow: 0 0 8px var(--secondary-container);
+    animation: reboot-pulse 1.2s ease-in-out infinite;
+    flex: 0 0 auto;
+}
+@keyframes reboot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
 /* ============================================================
    Admin GUI
    ============================================================ */

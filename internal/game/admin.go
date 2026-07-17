@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
@@ -109,34 +108,16 @@ func (c *Controller) Unban(userID string) error {
 	return c.postJSON("unban", map[string]string{"userid": userID})
 }
 
-// AdminPlayers returns the full player list including user ids for kick/ban.
-// The second return value reports whether the game's REST API was reachable.
-// Like all REST access it never wakes an auto-paused server.
+// AdminPlayers returns the full player list including user ids for kick/ban,
+// plus whether the game's REST API is reachable. It reads the SAME shared
+// cache the public Players()/RestAPIUp() use, so the admin dashboard and the
+// public status page can never disagree about who is online. Like all REST
+// access it never wakes an auto-paused server.
 func (c *Controller) AdminPlayers() ([]AdminPlayerInfo, bool) {
-	if !c.awake() {
-		return nil, false
-	}
-
-	req, _ := http.NewRequest("GET", c.endpoint("players"), nil)
-	c.authorize(req)
-
-	hc := &http.Client{Timeout: 4 * time.Second}
-	resp, err := hc.Do(req)
-	if err != nil {
-		log.Printf("[%s] AdminPlayers error: %v", c.containerName, err)
-		return nil, false
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, false
-	}
-
-	var r struct {
-		Players []AdminPlayerInfo `json:"players"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, false
-	}
-	return r.Players, true
+	c.playersMu.Lock()
+	defer c.playersMu.Unlock()
+	c.refreshPlayersLocked()
+	out := make([]AdminPlayerInfo, len(c.playersCache))
+	copy(out, c.playersCache)
+	return out, c.apiUpCache
 }
