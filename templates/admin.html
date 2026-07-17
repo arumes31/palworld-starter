@@ -21,6 +21,7 @@
     {{ if .AdminNotice }}<div class="admin-banner ok">{{ .AdminNotice }}</div>{{ end }}
     {{ if .AdminError }}<div class="admin-banner error">{{ .AdminError }}</div>{{ end }}
 
+    <div class="panel-row admin-panel-row">
     {{ range .AdminServers }}
     <section class="panel admin-panel" data-srv="{{ .ID }}" data-status="{{ .Status }}"
              {{ if .RebootActive }}data-reboot-target="{{ .RebootTargetUnix }}"{{ end }}>
@@ -131,7 +132,9 @@
             <!-- Scheduled reboots -->
             <div class="admin-section">
                 <h3 class="admin-h3">Scheduled reboots</h3>
+                <p class="admin-muted">Add as many daily and one-time reboots per server as you need.</p>
                 {{ if .Jobs }}
+                <div class="admin-table-wrap">
                 <table class="admin-table">
                     <thead><tr><th>Type</th><th>Time</th><th>Lead</th><th>Next run</th><th>State</th><th></th></tr></thead>
                     <tbody>
@@ -162,6 +165,7 @@
                     {{ end }}
                     </tbody>
                 </table>
+                </div>
                 {{ else }}
                 <p class="admin-muted">No scheduled reboots.</p>
                 {{ end }}
@@ -204,6 +208,7 @@
         </div>
     </section>
     {{ end }}
+    </div>
 </div>
 {{ end }}
 
