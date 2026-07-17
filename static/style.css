@@ -907,7 +907,13 @@ body {
 /* ============================================================
    Admin GUI
    ============================================================ */
-.admin-stack { max-width: 920px; }
+.admin-stack { width: 100%; }
+
+/* Admin server cards sit in a normal .panel-row so they flow side by side
+   like the public status panels; give them a little more room for the forms. */
+.admin-panel-row { align-items: flex-start; }
+.admin-panel { max-width: 34rem; }
+.admin-table-wrap { width: 100%; overflow-x: auto; }
 
 .admin-topbar {
     display: flex;
