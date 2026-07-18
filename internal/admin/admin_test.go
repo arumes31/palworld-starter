@@ -231,6 +231,112 @@ func TestJobCRUDAndScope(t *testing.T) {
 	}
 }
 
+// schedulingClock returns a fixed "now" and the target unix for a daily 05:00
+// job, with now safely inside the default 10-minute window.
+func schedulingClock() (now time.Time, target int64) {
+	now = time.Date(2026, 7, 18, 4, 52, 0, 0, time.Local)
+	target = time.Date(2026, 7, 18, 5, 0, 0, 0, time.Local).Unix()
+	return now, target
+}
+
+func TestClaimDueDifferentServersSameTime(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+		{ID: "b", ServerID: "beta", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	due := m.claimDueJobs(now)
+	if len(due) != 2 {
+		t.Fatalf("two distinct servers at the same time must both fire, got %d: %+v", len(due), due)
+	}
+	got := map[string]bool{due[0].serverID: true, due[1].serverID: true}
+	if !got["alpha"] || !got["beta"] {
+		t.Errorf("expected both alpha and beta, got %+v", due)
+	}
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != target {
+			t.Errorf("job %s occurrence not recorded: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+	// A later tick in the same window must not fire again.
+	if again := m.claimDueJobs(now.Add(2 * time.Minute)); len(again) != 0 {
+		t.Errorf("jobs re-fired within the same occurrence: %+v", again)
+	}
+}
+
+func TestClaimDueSameServerDuplicateFiresOnce(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+		{ID: "b", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	due := m.claimDueJobs(now)
+	if len(due) != 1 {
+		t.Fatalf("two duplicate schedules on one server must fire exactly once, got %d", len(due))
+	}
+	// BOTH duplicates must be consumed so the skipped one cannot re-fire and
+	// double-reboot the server on a later tick.
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != target {
+			t.Errorf("duplicate job %s not consumed: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+	if again := m.claimDueJobs(now.Add(1 * time.Minute)); len(again) != 0 {
+		t.Errorf("duplicate re-fired, would double-reboot: %+v", again)
+	}
+}
+
+func TestClaimDueSkipsBusyServerWithoutConsuming(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, _ := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+	m.active["alpha"] = &activeReboot{} // a reboot is already running
+
+	if due := m.claimDueJobs(now); len(due) != 0 {
+		t.Fatalf("a busy server must not be scheduled again, got %+v", due)
+	}
+	if m.cfg.Jobs[0].LastFired != 0 {
+		t.Errorf("a job skipped for a busy server must stay eligible, LastFired=%d", m.cfg.Jobs[0].LastFired)
+	}
+}
+
+func TestClaimDueOutsideWindow(t *testing.T) {
+	m := newTestManager(t, "g")
+	// now is well before the 10-minute window (target 05:00, window from 04:50).
+	now := time.Date(2026, 7, 18, 4, 30, 0, 0, time.Local)
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+	if due := m.claimDueJobs(now); len(due) != 0 {
+		t.Errorf("job outside its lead window must not fire, got %+v", due)
+	}
+}
+
+func TestTickLaunchesEachDueServer(t *testing.T) {
+	m := newTestManager(t, "g")
+	var launched []string
+	m.launch = func(serverID string, countdown int, by string) error {
+		launched = append(launched, serverID)
+		return nil
+	}
+	now, _ := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+		{ID: "b", ServerID: "beta", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	m.tick(now)
+	if len(launched) != 2 {
+		t.Fatalf("tick should launch both servers, launched %v", launched)
+	}
+}
+
 func TestVisibleServers(t *testing.T) {
 	m := newTestManager(t, "g")
 	if len(m.VisibleServers(ScopeAll)) != 2 {

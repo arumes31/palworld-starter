@@ -99,6 +99,10 @@ type Manager struct {
 	globalPw string // global admin password (raw, from env); empty disables the GUI
 
 	baseCtx context.Context
+
+	// launch starts a reboot for a server; it defaults to startReboot and is
+	// overridable in tests to decouple scheduling decisions from Docker.
+	launch func(serverID string, countdown int, by string) error
 }
 
 // NewManager loads persisted admin state from path and wires it to the given
@@ -139,6 +143,7 @@ func NewManager(path string, servers []ServerRef, globalPassword string, seeds m
 	if changed {
 		m.save()
 	}
+	m.launch = m.startReboot
 	return m
 }
 
