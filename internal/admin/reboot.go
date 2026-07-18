@@ -27,42 +27,52 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
-// dueReboot is a reboot the scheduler has decided to launch this tick.
+// dueReboot is a reboot the scheduler has reserved for this tick. Its
+// occurrence is not recorded (LastFired persisted, JobOnce disabled) until the
+// launch succeeds, so a failed launch leaves the occurrence eligible to retry.
 type dueReboot struct {
 	serverID  string
 	countdown int
 	jobID     string
+	target    int64        // target unix the reservation satisfies
+	jobs      []*RebootJob // primary job plus exact-duplicate schedules to commit together
 }
 
-// tick launches any reboots whose announcement window has been reached.
+// tick launches any reboots whose announcement window has been reached. The
+// job occurrence is committed only after a successful launch; a failed launch
+// leaves it unrecorded so it is retried on a later tick.
 func (m *Manager) tick(now time.Time) {
-	for _, d := range m.claimDueJobs(now) {
+	for _, d := range m.reserveDueJobs(now) {
 		log.Printf("admin: scheduled reboot %s for server %q in %ds", d.jobID, d.serverID, d.countdown)
 		if err := m.launch(d.serverID, d.countdown, "schedule "+d.jobID); err != nil {
+			// Release the reservation: leave the occurrence unrecorded so it can
+			// be retried once the server is running again.
 			log.Printf("admin: could not start scheduled reboot: %v", err)
+			continue
 		}
+		m.commitReboot(d)
 	}
 }
 
-// claimDueJobs decides which reboot jobs fire this tick and records that their
-// occurrence has been handled. It is deliberately free of any Docker access so
-// the scheduling policy can be tested directly.
+// reserveDueJobs selects the reboot jobs whose announcement window has opened,
+// without recording them as handled — that is done by commitReboot once the
+// launch succeeds. It performs no Docker access so the scheduling policy can be
+// tested directly.
 //
 // Policy for coinciding reboots:
-//   - at most one reboot is launched per server per tick — a server cannot
+//   - at most one reboot is reserved per server per tick — a server cannot
 //     reboot twice at once;
 //   - distinct servers scheduled for the same time each get their own reboot;
-//   - an exact duplicate schedule on the same server (same target time) is
-//     consumed so it cannot re-fire and cause a second reboot moments later;
+//   - exact duplicate schedules on the same server (same target time) are
+//     committed together so a skipped duplicate cannot re-fire and double-reboot;
 //   - a server whose reboot is already in progress is left untouched, so its
 //     job stays eligible for its next occurrence.
-func (m *Manager) claimDueJobs(now time.Time) []dueReboot {
+func (m *Manager) reserveDueJobs(now time.Time) []*dueReboot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	claimed := make(map[string]int64) // serverID -> target unix claimed this tick
-	var due []dueReboot
-	changed := false
+	byServer := make(map[string]*dueReboot) // serverID -> reservation this tick
+	var order []string                      // first-seen server order for determinism
 
 	for _, j := range m.cfg.Jobs {
 		if !j.Enabled {
@@ -88,34 +98,46 @@ func (m *Manager) claimDueJobs(now time.Time) []dueReboot {
 			continue // a reboot is already running for this server
 		}
 
-		if claimedTarget, ok := claimed[j.ServerID]; ok {
-			// Another job already triggers this server's reboot this tick. If it
-			// is an exact duplicate (same target time), consume it so it cannot
-			// re-fire later and double-reboot; otherwise leave it for a future
-			// tick once the server is free again.
-			if claimedTarget == target.Unix() {
-				j.LastFired = target.Unix()
-				if j.Type == JobOnce {
-					j.Enabled = false
-				}
-				changed = true
+		if res, ok := byServer[j.ServerID]; ok {
+			// Another job already reserves this server this tick. Fold in exact
+			// duplicates (same target) so they commit together; leave
+			// differently-timed jobs for a later tick once the server is free.
+			if res.target == target.Unix() {
+				res.jobs = append(res.jobs, j)
 			}
 			continue
 		}
 
-		j.LastFired = target.Unix()
+		byServer[j.ServerID] = &dueReboot{
+			serverID:  j.ServerID,
+			countdown: int(secs),
+			jobID:     j.ID,
+			target:    target.Unix(),
+			jobs:      []*RebootJob{j},
+		}
+		order = append(order, j.ServerID)
+	}
+
+	due := make([]*dueReboot, 0, len(order))
+	for _, id := range order {
+		due = append(due, byServer[id])
+	}
+	return due
+}
+
+// commitReboot records that a reserved reboot has been launched so its jobs do
+// not fire again for the same occurrence. It is called only after a successful
+// launch; on failure the reservation is dropped and the occurrence retried.
+func (m *Manager) commitReboot(d *dueReboot) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, j := range d.jobs {
+		j.LastFired = d.target
 		if j.Type == JobOnce {
 			j.Enabled = false
 		}
-		changed = true
-		claimed[j.ServerID] = target.Unix()
-		due = append(due, dueReboot{serverID: j.ServerID, countdown: int(secs), jobID: j.ID})
 	}
-
-	if changed {
-		m.save()
-	}
-	return due
+	m.save()
 }
 
 // NextTarget returns the next target (reboot) time for a job relative to now.

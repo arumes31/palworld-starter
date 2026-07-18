@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -239,7 +240,7 @@ func schedulingClock() (now time.Time, target int64) {
 	return now, target
 }
 
-func TestClaimDueDifferentServersSameTime(t *testing.T) {
+func TestReserveDueDifferentServersSameTime(t *testing.T) {
 	m := newTestManager(t, "g")
 	now, target := schedulingClock()
 	m.cfg.Jobs = []*RebootJob{
@@ -247,7 +248,7 @@ func TestClaimDueDifferentServersSameTime(t *testing.T) {
 		{ID: "b", ServerID: "beta", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
 	}
 
-	due := m.claimDueJobs(now)
+	due := m.reserveDueJobs(now)
 	if len(due) != 2 {
 		t.Fatalf("two distinct servers at the same time must both fire, got %d: %+v", len(due), due)
 	}
@@ -255,18 +256,27 @@ func TestClaimDueDifferentServersSameTime(t *testing.T) {
 	if !got["alpha"] || !got["beta"] {
 		t.Errorf("expected both alpha and beta, got %+v", due)
 	}
+	// Reserving alone must NOT record the occurrence.
 	for _, j := range m.cfg.Jobs {
-		if j.LastFired != target {
-			t.Errorf("job %s occurrence not recorded: LastFired=%d", j.ID, j.LastFired)
+		if j.LastFired != 0 {
+			t.Errorf("reserve must not consume job %s: LastFired=%d", j.ID, j.LastFired)
 		}
 	}
-	// A later tick in the same window must not fire again.
-	if again := m.claimDueJobs(now.Add(2 * time.Minute)); len(again) != 0 {
-		t.Errorf("jobs re-fired within the same occurrence: %+v", again)
+	// After committing, the occurrence is recorded and cannot fire again.
+	for _, d := range due {
+		m.commitReboot(d)
+	}
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != target {
+			t.Errorf("commit did not record job %s: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+	if again := m.reserveDueJobs(now.Add(2 * time.Minute)); len(again) != 0 {
+		t.Errorf("committed jobs re-fired within the same occurrence: %+v", again)
 	}
 }
 
-func TestClaimDueSameServerDuplicateFiresOnce(t *testing.T) {
+func TestReserveDueSameServerDuplicateFiresOnce(t *testing.T) {
 	m := newTestManager(t, "g")
 	now, target := schedulingClock()
 	m.cfg.Jobs = []*RebootJob{
@@ -274,23 +284,27 @@ func TestClaimDueSameServerDuplicateFiresOnce(t *testing.T) {
 		{ID: "b", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
 	}
 
-	due := m.claimDueJobs(now)
+	due := m.reserveDueJobs(now)
 	if len(due) != 1 {
 		t.Fatalf("two duplicate schedules on one server must fire exactly once, got %d", len(due))
 	}
-	// BOTH duplicates must be consumed so the skipped one cannot re-fire and
-	// double-reboot the server on a later tick.
+	// Both duplicates are folded into the one reservation, so committing it
+	// consumes both and neither can re-fire and double-reboot the server.
+	if len(due[0].jobs) != 2 {
+		t.Fatalf("both duplicate jobs should be folded into the reservation, got %d", len(due[0].jobs))
+	}
+	m.commitReboot(due[0])
 	for _, j := range m.cfg.Jobs {
 		if j.LastFired != target {
 			t.Errorf("duplicate job %s not consumed: LastFired=%d", j.ID, j.LastFired)
 		}
 	}
-	if again := m.claimDueJobs(now.Add(1 * time.Minute)); len(again) != 0 {
+	if again := m.reserveDueJobs(now.Add(1 * time.Minute)); len(again) != 0 {
 		t.Errorf("duplicate re-fired, would double-reboot: %+v", again)
 	}
 }
 
-func TestClaimDueSkipsBusyServerWithoutConsuming(t *testing.T) {
+func TestReserveDueSkipsBusyServerWithoutConsuming(t *testing.T) {
 	m := newTestManager(t, "g")
 	now, _ := schedulingClock()
 	m.cfg.Jobs = []*RebootJob{
@@ -298,7 +312,7 @@ func TestClaimDueSkipsBusyServerWithoutConsuming(t *testing.T) {
 	}
 	m.active["alpha"] = &activeReboot{} // a reboot is already running
 
-	if due := m.claimDueJobs(now); len(due) != 0 {
+	if due := m.reserveDueJobs(now); len(due) != 0 {
 		t.Fatalf("a busy server must not be scheduled again, got %+v", due)
 	}
 	if m.cfg.Jobs[0].LastFired != 0 {
@@ -306,14 +320,14 @@ func TestClaimDueSkipsBusyServerWithoutConsuming(t *testing.T) {
 	}
 }
 
-func TestClaimDueOutsideWindow(t *testing.T) {
+func TestReserveDueOutsideWindow(t *testing.T) {
 	m := newTestManager(t, "g")
 	// now is well before the 10-minute window (target 05:00, window from 04:50).
 	now := time.Date(2026, 7, 18, 4, 30, 0, 0, time.Local)
 	m.cfg.Jobs = []*RebootJob{
 		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
 	}
-	if due := m.claimDueJobs(now); len(due) != 0 {
+	if due := m.reserveDueJobs(now); len(due) != 0 {
 		t.Errorf("job outside its lead window must not fire, got %+v", due)
 	}
 }
@@ -325,7 +339,7 @@ func TestTickLaunchesEachDueServer(t *testing.T) {
 		launched = append(launched, serverID)
 		return nil
 	}
-	now, _ := schedulingClock()
+	now, target := schedulingClock()
 	m.cfg.Jobs = []*RebootJob{
 		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
 		{ID: "b", ServerID: "beta", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
@@ -334,6 +348,53 @@ func TestTickLaunchesEachDueServer(t *testing.T) {
 	m.tick(now)
 	if len(launched) != 2 {
 		t.Fatalf("tick should launch both servers, launched %v", launched)
+	}
+	// A successful launch commits the occurrence.
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != target {
+			t.Errorf("successful launch did not commit job %s: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+}
+
+func TestTickRetriesWhenLaunchFails(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobOnce, Time: "2026-07-18T05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	attempts := 0
+	fail := true
+	m.launch = func(serverID string, countdown int, by string) error {
+		attempts++
+		if fail {
+			return errors.New("server is not running")
+		}
+		return nil
+	}
+
+	// First tick: launch fails, so the occurrence must NOT be recorded and the
+	// one-time job must stay enabled so it can retry.
+	m.tick(now)
+	if m.cfg.Jobs[0].LastFired != 0 {
+		t.Errorf("failed launch must not consume the occurrence, LastFired=%d", m.cfg.Jobs[0].LastFired)
+	}
+	if !m.cfg.Jobs[0].Enabled {
+		t.Error("failed launch must not disable a one-time job")
+	}
+
+	// Second tick within the window: launch now succeeds and commits.
+	fail = false
+	m.tick(now.Add(1 * time.Minute))
+	if attempts != 2 {
+		t.Errorf("expected a retry, got %d launch attempts", attempts)
+	}
+	if m.cfg.Jobs[0].LastFired != target {
+		t.Errorf("successful retry must commit the occurrence, LastFired=%d", m.cfg.Jobs[0].LastFired)
+	}
+	if m.cfg.Jobs[0].Enabled {
+		t.Error("committed one-time job must be disabled")
 	}
 }
 
