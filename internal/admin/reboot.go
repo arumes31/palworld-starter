@@ -27,14 +27,54 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
-// tick launches any reboots whose announcement window has been reached.
-func (m *Manager) tick(now time.Time) {
-	m.mu.Lock()
-	jobs := make([]*RebootJob, len(m.cfg.Jobs))
-	copy(jobs, m.cfg.Jobs)
-	m.mu.Unlock()
+// dueReboot is a reboot the scheduler has reserved for this tick. Its
+// occurrence is not recorded (LastFired persisted, JobOnce disabled) until the
+// launch succeeds, so a failed launch leaves the occurrence eligible to retry.
+type dueReboot struct {
+	serverID  string
+	countdown int
+	jobID     string
+	target    int64        // target unix the reservation satisfies
+	jobs      []*RebootJob // primary job plus exact-duplicate schedules to commit together
+}
 
-	for _, j := range jobs {
+// tick launches any reboots whose announcement window has been reached. The
+// job occurrence is committed only after a successful launch; a failed launch
+// leaves it unrecorded so it is retried on a later tick.
+func (m *Manager) tick(now time.Time) {
+	for _, d := range m.reserveDueJobs(now) {
+		log.Printf("admin: scheduled reboot %s for server %q in %ds", d.jobID, d.serverID, d.countdown)
+		if err := m.launch(d.serverID, d.countdown, "schedule "+d.jobID); err != nil {
+			// Release the reservation: leave the occurrence unrecorded so it can
+			// be retried once the server is running again.
+			log.Printf("admin: could not start scheduled reboot: %v", err)
+			continue
+		}
+		m.commitReboot(d)
+	}
+}
+
+// reserveDueJobs selects the reboot jobs whose announcement window has opened,
+// without recording them as handled — that is done by commitReboot once the
+// launch succeeds. It performs no Docker access so the scheduling policy can be
+// tested directly.
+//
+// Policy for coinciding reboots:
+//   - at most one reboot is reserved per server per tick — a server cannot
+//     reboot twice at once;
+//   - distinct servers scheduled for the same time each get their own reboot;
+//   - exact duplicate schedules on the same server (same target time) are
+//     committed together so a skipped duplicate cannot re-fire and double-reboot;
+//   - a server whose reboot is already in progress is left untouched, so its
+//     job stays eligible for its next occurrence.
+func (m *Manager) reserveDueJobs(now time.Time) []*dueReboot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	byServer := make(map[string]*dueReboot) // serverID -> reservation this tick
+	var order []string                      // first-seen server order for determinism
+
+	for _, j := range m.cfg.Jobs {
 		if !j.Enabled {
 			continue
 		}
@@ -46,34 +86,58 @@ func (m *Manager) tick(now time.Time) {
 		if lead <= 0 {
 			lead = DefaultLeadSeconds
 		}
-		secsToTarget := target.Sub(now).Seconds()
-		// Fire once we are inside the announcement lead window before the
-		// target, and only once per occurrence.
-		if secsToTarget <= 0 || secsToTarget > float64(lead) {
+		secs := target.Sub(now).Seconds()
+		// Only inside the announcement lead window before the target.
+		if secs <= 0 || secs > float64(lead) {
+			continue
+		}
+		if j.LastFired == target.Unix() {
+			continue // this occurrence already handled
+		}
+		if _, busy := m.active[j.ServerID]; busy {
+			continue // a reboot is already running for this server
+		}
+
+		if res, ok := byServer[j.ServerID]; ok {
+			// Another job already reserves this server this tick. Fold in exact
+			// duplicates (same target) so they commit together; leave
+			// differently-timed jobs for a later tick once the server is free.
+			if res.target == target.Unix() {
+				res.jobs = append(res.jobs, j)
+			}
 			continue
 		}
 
-		m.mu.Lock()
-		if j.LastFired == target.Unix() {
-			m.mu.Unlock()
-			continue
+		byServer[j.ServerID] = &dueReboot{
+			serverID:  j.ServerID,
+			countdown: int(secs),
+			jobID:     j.ID,
+			target:    target.Unix(),
+			jobs:      []*RebootJob{j},
 		}
-		if _, busy := m.active[j.ServerID]; busy {
-			m.mu.Unlock()
-			continue
-		}
-		j.LastFired = target.Unix()
+		order = append(order, j.ServerID)
+	}
+
+	due := make([]*dueReboot, 0, len(order))
+	for _, id := range order {
+		due = append(due, byServer[id])
+	}
+	return due
+}
+
+// commitReboot records that a reserved reboot has been launched so its jobs do
+// not fire again for the same occurrence. It is called only after a successful
+// launch; on failure the reservation is dropped and the occurrence retried.
+func (m *Manager) commitReboot(d *dueReboot) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, j := range d.jobs {
+		j.LastFired = d.target
 		if j.Type == JobOnce {
 			j.Enabled = false
 		}
-		m.save()
-		m.mu.Unlock()
-
-		log.Printf("admin: scheduled reboot %s for server %q in %ds", j.ID, j.ServerID, int(secsToTarget))
-		if err := m.startReboot(j.ServerID, int(secsToTarget), "schedule "+j.ID); err != nil {
-			log.Printf("admin: could not start scheduled reboot: %v", err)
-		}
 	}
+	m.save()
 }
 
 // NextTarget returns the next target (reboot) time for a job relative to now.
@@ -183,7 +247,9 @@ func (m *Manager) runReboot(ctx context.Context, ref ServerRef, countdown int, a
 
 	// Only run the in-game countdown when players are actually online; on an
 	// empty (or auto-paused) server there is nobody to warn, so reboot at once.
-	if countdown > 0 && len(ref.Ctrl.Players()) > 0 {
+	players := len(ref.Ctrl.Players())
+	log.Printf("admin: reboot of %q armed by %s — %d player(s), %ds lead", ref.ID, ar.StartedBy, players, countdown)
+	if countdown > 0 && players > 0 {
 		for _, off := range announceOffsets(countdown) {
 			fireAt := target.Add(-time.Duration(off) * time.Second)
 			if d := time.Until(fireAt); d > 0 {
@@ -208,11 +274,21 @@ func (m *Manager) runReboot(ctx context.Context, ref ServerRef, countdown int, a
 
 	select {
 	case <-ctx.Done():
+		log.Printf("admin: reboot of %q cancelled before execution", ref.ID)
 		return
 	default:
 	}
 
-	log.Printf("admin: rebooting server %q (%s)", ref.ID, ar.StartedBy)
+	// A server can end up stopped during a long countdown (manual stop, crash).
+	// Per policy we never start a stopped server, so skip the reboot when it is
+	// no longer running. The idle timer is separately told to leave a rebooting
+	// server alone, so this should be rare.
+	if ref.Ctrl.CachedStatus() != "running" {
+		log.Printf("admin: reboot of %q skipped — server is no longer running", ref.ID)
+		return
+	}
+
+	log.Printf("admin: rebooting server %q now", ref.ID)
 	_ = ref.Ctrl.AnnounceNow("Server is rebooting now. Back in a moment!")
 
 	// Stop() saves the world, backs it up when players are online and shuts the
@@ -233,7 +309,9 @@ func (m *Manager) runReboot(ctx context.Context, ref ServerRef, countdown int, a
 
 	if err := ref.Ctrl.Start(); err != nil {
 		log.Printf("admin: reboot start failed for %q: %v", ref.ID, err)
+		return
 	}
+	log.Printf("admin: reboot of %q complete", ref.ID)
 }
 
 // announceOffsets returns the "seconds remaining" marks at which to broadcast a
