@@ -75,7 +75,8 @@ func (s *Server) rebootStatus(serverID string) (targetUnix int64, active bool) {
 
 // adminScope returns the caller's admin scope, or "" when not authenticated.
 func (s *Server) adminScope(sd *SessionData) string {
-	if sd.AdminScope == "" || sd.AdminExpires < time.Now().Unix() {
+	if sd.AdminScope == "" || sd.AdminExpires <= time.Now().Unix() ||
+		!s.admin.ValidateSession(sd.AdminScope, sd.AdminRevision) {
 		return ""
 	}
 	return sd.AdminScope
@@ -121,7 +122,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scope, ok := s.admin.Authenticate(r.FormValue("password"))
+	scope, revision, ok := s.admin.Authenticate(r.FormValue("password"))
 	if !ok {
 		// Slow down brute-force attempts without holding a lock or state.
 		time.Sleep(600 * time.Millisecond)
@@ -130,6 +131,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sd.AdminScope = scope
+	sd.AdminRevision = revision
 	sd.AdminExpires = time.Now().Add(adminSessionTTL).Unix()
 	ensureCsrf(sd)
 	saveSession(w, sd)
@@ -140,6 +142,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	sd := getSession(r)
 	sd.AdminScope = ""
+	sd.AdminRevision = ""
 	sd.AdminExpires = 0
 	saveSession(w, sd)
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)

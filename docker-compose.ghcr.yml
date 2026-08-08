@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   palworld-starter:
     image: ghcr.io/arumes31/palworld-starter:latest

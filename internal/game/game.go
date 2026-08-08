@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/containerd/errdefs"
+	"github.com/moby/moby/client"
 )
 
 // PlayerInfo holds the subset of player data that is safe to expose publicly.
@@ -69,7 +69,7 @@ type Controller struct {
 // env on the first inspect. A Docker init failure is logged, not fatal - all
 // methods degrade gracefully.
 func NewController(containerName, restHost string, restPort int, adminPassword string) *Controller {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		log.Printf("Failed to initialize Docker client: %v", err)
 		cli = nil
@@ -117,9 +117,9 @@ func (c *Controller) Status() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	inspect, err := c.cli.ContainerInspect(ctx, c.containerName)
+	inspect, err := c.cli.ContainerInspect(ctx, c.containerName, client.ContainerInspectOptions{})
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if errdefs.IsNotFound(err) {
 			return "exited"
 		}
 		log.Printf("Docker inspect error: %v", err)
@@ -130,7 +130,7 @@ func (c *Controller) Status() string {
 	// process: scrape it from the game container's environment.
 	c.passwordMu.Lock()
 	if !c.passwordFromEnv {
-		for _, env := range inspect.Config.Env {
+		for _, env := range inspect.Container.Config.Env {
 			if strings.HasPrefix(env, "ADMIN_PASSWORD=") {
 				c.adminPassword = strings.SplitN(env, "=", 2)[1]
 			}
@@ -138,7 +138,7 @@ func (c *Controller) Status() string {
 	}
 	c.passwordMu.Unlock()
 
-	return inspect.State.Status
+	return string(inspect.Container.State.Status)
 }
 
 // CachedStatus returns the container status, cached for 30 seconds.
@@ -174,7 +174,7 @@ func (c *Controller) IsPaused() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	options := container.LogsOptions{
+	options := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Tail:       "200",
@@ -481,18 +481,18 @@ func (c *Controller) exec(cmd []string) (int, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	config := container.ExecOptions{
+	config := client.ExecCreateOptions{
 		Cmd:          cmd,
 		AttachStdout: true,
 		AttachStderr: true,
 	}
 
-	response, err := c.cli.ContainerExecCreate(ctx, c.containerName, config)
+	response, err := c.cli.ExecCreate(ctx, c.containerName, config)
 	if err != nil {
 		return -1, "", err
 	}
 
-	resp, err := c.cli.ContainerExecAttach(ctx, response.ID, container.ExecStartOptions{})
+	resp, err := c.cli.ExecAttach(ctx, response.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return -1, "", err
 	}
@@ -501,7 +501,7 @@ func (c *Controller) exec(cmd []string) (int, string, error) {
 	var out bytes.Buffer
 	_, _ = io.Copy(&out, resp.Reader)
 
-	inspect, err := c.cli.ContainerExecInspect(ctx, response.ID)
+	inspect, err := c.cli.ExecInspect(ctx, response.ID, client.ExecInspectOptions{})
 	if err != nil {
 		return -1, out.String(), err
 	}
@@ -579,7 +579,7 @@ func (c *Controller) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	err := c.cli.ContainerStart(ctx, c.containerName, container.StartOptions{})
+	_, err := c.cli.ContainerStart(ctx, c.containerName, client.ContainerStartOptions{})
 	if err == nil {
 		c.invalidateStatusCache()
 	}
@@ -689,10 +689,10 @@ func (c *Controller) Stop() error {
 	defer cancel()
 
 	timeout := 10
-	stopOpts := container.StopOptions{
+	stopOpts := client.ContainerStopOptions{
 		Timeout: &timeout,
 	}
-	err := c.cli.ContainerStop(ctx, c.containerName, stopOpts)
+	_, err := c.cli.ContainerStop(ctx, c.containerName, stopOpts)
 	if err == nil {
 		c.invalidateStatusCache()
 	}

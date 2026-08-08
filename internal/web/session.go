@@ -45,8 +45,9 @@ type SessionData struct {
 
 	// Admin session. AdminScope is admin.ScopeAll ("*") for a global admin or
 	// a single server id for a per-server admin; empty when not logged in.
-	AdminScope   string `json:"admin_scope,omitempty"`
-	AdminExpires int64  `json:"admin_expires,omitempty"` // unix; admin session validity
+	AdminScope    string `json:"admin_scope,omitempty"`
+	AdminRevision string `json:"admin_revision,omitempty"`
+	AdminExpires  int64  `json:"admin_expires,omitempty"` // unix; admin session validity
 }
 
 func getSession(r *http.Request) *SessionData {

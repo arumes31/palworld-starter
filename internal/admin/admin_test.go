@@ -107,16 +107,16 @@ func TestAuthenticateScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if scope, ok := m.Authenticate("globalpw"); !ok || scope != ScopeAll {
+	if scope, revision, ok := m.Authenticate("globalpw"); !ok || scope != ScopeAll || revision == "" {
 		t.Errorf("global auth = (%q,%v), want (*,true)", scope, ok)
 	}
-	if scope, ok := m.Authenticate("alphapw"); !ok || scope != "alpha" {
+	if scope, revision, ok := m.Authenticate("alphapw"); !ok || scope != "alpha" || revision == "" {
 		t.Errorf("alpha auth = (%q,%v), want (alpha,true)", scope, ok)
 	}
-	if _, ok := m.Authenticate("wrong"); ok {
+	if _, _, ok := m.Authenticate("wrong"); ok {
 		t.Error("wrong password authenticated")
 	}
-	if _, ok := m.Authenticate(""); ok {
+	if _, _, ok := m.Authenticate(""); ok {
 		t.Error("empty password authenticated")
 	}
 
@@ -132,13 +132,44 @@ func TestAuthenticateScopes(t *testing.T) {
 	}
 }
 
+func TestValidateSessionTracksCredentialChanges(t *testing.T) {
+	m := newTestManager(t, "globalpw")
+	if err := m.SetServerPassword("alpha", "alphapw"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, globalRevision, ok := m.Authenticate("globalpw")
+	if !ok || !m.ValidateSession(ScopeAll, globalRevision) {
+		t.Fatal("fresh global session should be valid")
+	}
+	_, serverRevision, ok := m.Authenticate("alphapw")
+	if !ok || !m.ValidateSession("alpha", serverRevision) {
+		t.Fatal("fresh server session should be valid")
+	}
+
+	if err := m.SetServerPassword("alpha", "replacement"); err != nil {
+		t.Fatal(err)
+	}
+	if m.ValidateSession("alpha", serverRevision) {
+		t.Error("replaced server credential did not revoke its session")
+	}
+
+	changedGlobal := NewManager("", []ServerRef{{ID: "alpha"}}, "replacement", nil)
+	if changedGlobal.ValidateSession(ScopeAll, globalRevision) {
+		t.Error("changed global credential did not revoke its session")
+	}
+	if m.ValidateSession("unknown", globalRevision) {
+		t.Error("unknown scope accepted a valid revision from another scope")
+	}
+}
+
 func TestAuthenticateDisabledWhenNoGlobal(t *testing.T) {
 	m := newTestManager(t, "")
 	if m.Enabled() {
 		t.Error("manager should be disabled without a global password")
 	}
 	_ = m.SetServerPassword("alpha", "alphapw")
-	if _, ok := m.Authenticate("alphapw"); ok {
+	if _, _, ok := m.Authenticate("alphapw"); ok {
 		t.Error("auth must be refused while the GUI is disabled")
 	}
 }
@@ -158,7 +189,7 @@ func TestPasswordPersistence(t *testing.T) {
 	if !m2.HasServerPassword("alpha") {
 		t.Fatal("password not persisted")
 	}
-	if scope, ok := m2.Authenticate("secret"); !ok || scope != "alpha" {
+	if scope, _, ok := m2.Authenticate("secret"); !ok || scope != "alpha" {
 		t.Errorf("reloaded auth = (%q,%v)", scope, ok)
 	}
 
@@ -175,17 +206,17 @@ func TestSeededPasswords(t *testing.T) {
 	refs := []ServerRef{{ID: "alpha"}, {ID: "beta"}}
 
 	m := NewManager(path, refs, "g", map[string]string{"beta": "seeded"})
-	if scope, ok := m.Authenticate("seeded"); !ok || scope != "beta" {
+	if scope, _, ok := m.Authenticate("seeded"); !ok || scope != "beta" {
 		t.Errorf("seeded auth = (%q,%v)", scope, ok)
 	}
 
 	// Seeds must not overwrite an existing stored password.
 	_ = m.SetServerPassword("beta", "changed")
 	m2 := NewManager(path, refs, "g", map[string]string{"beta": "seeded"})
-	if _, ok := m2.Authenticate("seeded"); ok {
+	if _, _, ok := m2.Authenticate("seeded"); ok {
 		t.Error("seed overwrote an existing per-server password")
 	}
-	if scope, ok := m2.Authenticate("changed"); !ok || scope != "beta" {
+	if scope, _, ok := m2.Authenticate("changed"); !ok || scope != "beta" {
 		t.Errorf("stored password lost after re-seed: (%q,%v)", scope, ok)
 	}
 }
