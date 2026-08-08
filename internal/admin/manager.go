@@ -99,6 +99,10 @@ type Manager struct {
 	globalPw string // global admin password (raw, from env); empty disables the GUI
 
 	baseCtx context.Context
+
+	// launch starts a reboot for a server; it defaults to startReboot and is
+	// overridable in tests to decouple scheduling decisions from Docker.
+	launch func(serverID string, countdown int, by string) error
 }
 
 // NewManager loads persisted admin state from path and wires it to the given
@@ -139,6 +143,7 @@ func NewManager(path string, servers []ServerRef, globalPassword string, seeds m
 	if changed {
 		m.save()
 	}
+	m.launch = m.startReboot
 	return m
 }
 
@@ -164,25 +169,49 @@ func (m *Manager) Server(id string) (ServerRef, bool) {
 
 // --- Authentication & scope -------------------------------------------------
 
-// Authenticate resolves a submitted password to an access scope. It returns
-// ScopeAll for the global password, or a single server id for a matching
-// per-server password. ok is false when nothing matches.
-func (m *Manager) Authenticate(password string) (scope string, ok bool) {
+// Authenticate resolves a submitted password to an access scope and a
+// credential revision that binds a session to the matched password. The
+// revision changes whenever that password changes, immediately invalidating
+// previously issued sessions.
+func (m *Manager) Authenticate(password string) (scope, revision string, ok bool) {
 	if password == "" || m.globalPw == "" {
-		return "", false
+		return "", "", false
 	}
 	if subtle.ConstantTimeCompare([]byte(password), []byte(m.globalPw)) == 1 {
-		return ScopeAll, true
+		return ScopeAll, credentialRevision(ScopeAll, m.globalPw), true
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// Iterate in configured order for deterministic behaviour.
 	for _, id := range m.order {
 		if a := m.cfg.ServerAuth[id]; a != nil && a.matches(password) {
-			return id, true
+			return id, credentialRevision(id, a.Salt+":"+a.Hash), true
 		}
 	}
-	return "", false
+	return "", "", false
+}
+
+// ValidateSession reports whether a credential-bound session is still valid.
+// Password replacement or removal changes the expected revision and revokes
+// every session issued for the previous credential.
+func (m *Manager) ValidateSession(scope, revision string) bool {
+	if m == nil || m.globalPw == "" || revision == "" {
+		return false
+	}
+
+	want := ""
+	if scope == ScopeAll {
+		want = credentialRevision(ScopeAll, m.globalPw)
+	} else {
+		m.mu.Lock()
+		a := m.cfg.ServerAuth[scope]
+		_, serverExists := m.servers[scope]
+		if a != nil && serverExists {
+			want = credentialRevision(scope, a.Salt+":"+a.Hash)
+		}
+		m.mu.Unlock()
+	}
+	return want != "" && subtle.ConstantTimeCompare([]byte(revision), []byte(want)) == 1
 }
 
 // CanAccess reports whether an authenticated scope may act on serverID.
@@ -245,6 +274,14 @@ func hashWithSalt(salt []byte, password string) string {
 	h := sha256.New()
 	h.Write(salt)
 	h.Write([]byte(password))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func credentialRevision(scope, verifier string) string {
+	h := sha256.New()
+	h.Write([]byte(scope))
+	h.Write([]byte{0})
+	h.Write([]byte(verifier))
 	return hex.EncodeToString(h.Sum(nil))
 }
 

@@ -45,14 +45,19 @@ func sessionFromCookie(c *http.Cookie) (*SessionData, error) {
 	return &sd, nil
 }
 
-// adminCookie builds an encrypted session cookie for a logged-in admin.
-func adminCookie(t *testing.T, scope, csrf string) *http.Cookie {
+// adminCookie builds an encrypted session cookie from a real authentication.
+func adminCookie(t *testing.T, mgr *admin.Manager, password, csrf string) *http.Cookie {
 	t.Helper()
+	scope, revision, ok := mgr.Authenticate(password)
+	if !ok {
+		t.Fatalf("authenticate test admin")
+	}
 	sd := &SessionData{
-		AdminScope:   scope,
-		AdminExpires: time.Now().Add(time.Hour).Unix(),
-		CsrfToken:    csrf,
-		Language:     "en",
+		AdminScope:    scope,
+		AdminRevision: revision,
+		AdminExpires:  time.Now().Add(time.Hour).Unix(),
+		CsrfToken:     csrf,
+		Language:      "en",
 	}
 	b, _ := json.Marshal(sd)
 	enc, _ := encryptSession(b)
@@ -128,10 +133,55 @@ func TestAdminLoginFlow(t *testing.T) {
 	}
 }
 
+func TestAdminSessionRevokedWhenServerPasswordChanges(t *testing.T) {
+	srv, _ := newAdminServer(t, "global-secret")
+	if err := srv.admin.SetServerPassword("alpha", "old-secret"); err != nil {
+		t.Fatalf("set initial server password: %v", err)
+	}
+
+	rrGet := httptest.NewRecorder()
+	srv.handleAdminLogin(rrGet, httptest.NewRequest(http.MethodGet, "/admin/login", nil))
+	loginCookie := rrGet.Result().Cookies()[0]
+	sd, err := sessionFromCookie(loginCookie)
+	if err != nil {
+		t.Fatalf("decode login session: %v", err)
+	}
+
+	form := url.Values{
+		"csrf_token": {sd.CsrfToken},
+		"password":   {"old-secret"},
+	}
+	rrLogin := httptest.NewRecorder()
+	reqLogin := httptest.NewRequest(
+		http.MethodPost,
+		"/admin/login",
+		strings.NewReader(form.Encode()),
+	)
+	reqLogin.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqLogin.AddCookie(loginCookie)
+	srv.handleAdminLogin(rrLogin, reqLogin)
+	adminCookie := rrLogin.Result().Cookies()[0]
+
+	if err := srv.admin.SetServerPassword("alpha", "new-secret"); err != nil {
+		t.Fatalf("change server password: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/players?srv=alpha", nil)
+	req.AddCookie(adminCookie)
+	srv.handleAdminPlayers(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("request with revoked admin session = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestAdminActionScopeEnforced(t *testing.T) {
 	srv, _ := newAdminServer(t, "secret")
+	if err := srv.admin.SetServerPassword("alpha", "alpha-secret"); err != nil {
+		t.Fatalf("set server password: %v", err)
+	}
 	csrf := "tok123"
-	cookie := adminCookie(t, "alpha", csrf) // scoped to alpha only
+	cookie := adminCookie(t, srv.admin, "alpha-secret", csrf)
 
 	// Acting on beta from an alpha session is forbidden.
 	form := url.Values{"csrf_token": {csrf}, "srv": {"beta"}, "action": {"save"}}
@@ -173,7 +223,7 @@ func TestAdminActionRequiresAuthAndCsrf(t *testing.T) {
 	}
 
 	// Authenticated but wrong CSRF token: forbidden.
-	cookie := adminCookie(t, admin.ScopeAll, "realtoken")
+	cookie := adminCookie(t, srv.admin, "secret", "realtoken")
 	form := url.Values{"csrf_token": {"wrong"}, "srv": {"alpha"}, "action": {"save"}}
 	rr = httptest.NewRecorder()
 	req = httptest.NewRequest("POST", "/admin/action", strings.NewReader(form.Encode()))
@@ -188,7 +238,7 @@ func TestAdminActionRequiresAuthAndCsrf(t *testing.T) {
 func TestAdminScheduleAddAndList(t *testing.T) {
 	srv, _ := newAdminServer(t, "secret")
 	csrf := "tok"
-	cookie := adminCookie(t, admin.ScopeAll, csrf)
+	cookie := adminCookie(t, srv.admin, "secret", csrf)
 
 	form := url.Values{
 		"csrf_token": {csrf}, "srv": {"alpha"}, "op": {"add"},
@@ -235,7 +285,10 @@ func TestPublicPlayersIncludesRebootFields(t *testing.T) {
 
 func TestAdminPlayersScoped(t *testing.T) {
 	srv, _ := newAdminServer(t, "secret")
-	cookie := adminCookie(t, "alpha", "tok")
+	if err := srv.admin.SetServerPassword("alpha", "alpha-secret"); err != nil {
+		t.Fatalf("set server password: %v", err)
+	}
+	cookie := adminCookie(t, srv.admin, "alpha-secret", "tok")
 
 	// Cross-server read is forbidden.
 	rr := httptest.NewRecorder()

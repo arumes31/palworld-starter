@@ -124,8 +124,13 @@ func runTicker(ctx context.Context, interval time.Duration, fn func()) {
 }
 
 // startTimerTicker counts the remaining time down, warns players in-game at
-// the 10/5/1 minute marks and stops the container on expiry.
-func startTimerTicker(ctx context.Context, ctrl *game.Controller, st *state.State) {
+// the 10/5/1 minute marks and stops the container on expiry. It never stops a
+// server that is mid-reboot: the admin reboot flow owns that server's lifecycle
+// (stop + start), and letting the idle timer stop it concurrently could race
+// the reboot's restart and leave the server down.
+func startTimerTicker(ctx context.Context, inst *web.Instance, adminMgr *admin.Manager) {
+	ctrl := inst.Game
+	st := inst.State
 	runTicker(ctx, 30*time.Second, func() {
 		var expired bool
 		warnMinutes := 0
@@ -151,6 +156,10 @@ func startTimerTicker(ctx context.Context, ctrl *game.Controller, st *state.Stat
 		})
 
 		if expired {
+			if _, rebooting := adminMgr.ActiveReboot(inst.ID); rebooting {
+				log.Printf("Timer expiry for %q ignored — a reboot is in progress", inst.ID)
+				return
+			}
 			if ctrl.CachedStatus() == "running" {
 				log.Println("TIME EXPIRED → stopping container")
 				if err := ctrl.Stop(); err != nil {
@@ -256,21 +265,23 @@ func main() {
 	// Warm up cache
 	_ = discord.InviteURL()
 
-	// Start one ticker set per server
-	for _, inst := range instances {
-		startTimerTicker(ctx, inst.Game, inst.State)
-		startPlayerExtendTicker(ctx, inst.Game, inst.State)
-		startBroadcastScheduler(ctx, inst.Game)
-		startAutoBackupTicker(ctx, inst.Game)
-	}
-	startDiscordRefreshTicker(ctx)
-
+	// The admin manager owns scheduled reboots, so build it before the tickers:
+	// the idle timer consults it to avoid stopping a server mid-reboot.
 	adminMgr := buildAdminManager(ctx, instances, envOr("STATE_DIR", "/hostmem"))
 	if adminMgr.Enabled() {
 		log.Println("Admin GUI enabled at /admin")
 	} else {
 		log.Println("Admin GUI disabled (set ADMIN_GUI_PASSWORD to enable)")
 	}
+
+	// Start one ticker set per server
+	for _, inst := range instances {
+		startTimerTicker(ctx, inst, adminMgr)
+		startPlayerExtendTicker(ctx, inst.Game, inst.State)
+		startBroadcastScheduler(ctx, inst.Game)
+		startAutoBackupTicker(ctx, inst.Game)
+	}
+	startDiscordRefreshTicker(ctx)
 
 	srv := web.New(instances, "templates", "./static", adminMgr)
 

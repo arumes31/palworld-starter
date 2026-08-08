@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -106,16 +107,16 @@ func TestAuthenticateScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if scope, ok := m.Authenticate("globalpw"); !ok || scope != ScopeAll {
+	if scope, revision, ok := m.Authenticate("globalpw"); !ok || scope != ScopeAll || revision == "" {
 		t.Errorf("global auth = (%q,%v), want (*,true)", scope, ok)
 	}
-	if scope, ok := m.Authenticate("alphapw"); !ok || scope != "alpha" {
+	if scope, revision, ok := m.Authenticate("alphapw"); !ok || scope != "alpha" || revision == "" {
 		t.Errorf("alpha auth = (%q,%v), want (alpha,true)", scope, ok)
 	}
-	if _, ok := m.Authenticate("wrong"); ok {
+	if _, _, ok := m.Authenticate("wrong"); ok {
 		t.Error("wrong password authenticated")
 	}
-	if _, ok := m.Authenticate(""); ok {
+	if _, _, ok := m.Authenticate(""); ok {
 		t.Error("empty password authenticated")
 	}
 
@@ -131,13 +132,44 @@ func TestAuthenticateScopes(t *testing.T) {
 	}
 }
 
+func TestValidateSessionTracksCredentialChanges(t *testing.T) {
+	m := newTestManager(t, "globalpw")
+	if err := m.SetServerPassword("alpha", "alphapw"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, globalRevision, ok := m.Authenticate("globalpw")
+	if !ok || !m.ValidateSession(ScopeAll, globalRevision) {
+		t.Fatal("fresh global session should be valid")
+	}
+	_, serverRevision, ok := m.Authenticate("alphapw")
+	if !ok || !m.ValidateSession("alpha", serverRevision) {
+		t.Fatal("fresh server session should be valid")
+	}
+
+	if err := m.SetServerPassword("alpha", "replacement"); err != nil {
+		t.Fatal(err)
+	}
+	if m.ValidateSession("alpha", serverRevision) {
+		t.Error("replaced server credential did not revoke its session")
+	}
+
+	changedGlobal := NewManager("", []ServerRef{{ID: "alpha"}}, "replacement", nil)
+	if changedGlobal.ValidateSession(ScopeAll, globalRevision) {
+		t.Error("changed global credential did not revoke its session")
+	}
+	if m.ValidateSession("unknown", globalRevision) {
+		t.Error("unknown scope accepted a valid revision from another scope")
+	}
+}
+
 func TestAuthenticateDisabledWhenNoGlobal(t *testing.T) {
 	m := newTestManager(t, "")
 	if m.Enabled() {
 		t.Error("manager should be disabled without a global password")
 	}
 	_ = m.SetServerPassword("alpha", "alphapw")
-	if _, ok := m.Authenticate("alphapw"); ok {
+	if _, _, ok := m.Authenticate("alphapw"); ok {
 		t.Error("auth must be refused while the GUI is disabled")
 	}
 }
@@ -157,7 +189,7 @@ func TestPasswordPersistence(t *testing.T) {
 	if !m2.HasServerPassword("alpha") {
 		t.Fatal("password not persisted")
 	}
-	if scope, ok := m2.Authenticate("secret"); !ok || scope != "alpha" {
+	if scope, _, ok := m2.Authenticate("secret"); !ok || scope != "alpha" {
 		t.Errorf("reloaded auth = (%q,%v)", scope, ok)
 	}
 
@@ -174,17 +206,17 @@ func TestSeededPasswords(t *testing.T) {
 	refs := []ServerRef{{ID: "alpha"}, {ID: "beta"}}
 
 	m := NewManager(path, refs, "g", map[string]string{"beta": "seeded"})
-	if scope, ok := m.Authenticate("seeded"); !ok || scope != "beta" {
+	if scope, _, ok := m.Authenticate("seeded"); !ok || scope != "beta" {
 		t.Errorf("seeded auth = (%q,%v)", scope, ok)
 	}
 
 	// Seeds must not overwrite an existing stored password.
 	_ = m.SetServerPassword("beta", "changed")
 	m2 := NewManager(path, refs, "g", map[string]string{"beta": "seeded"})
-	if _, ok := m2.Authenticate("seeded"); ok {
+	if _, _, ok := m2.Authenticate("seeded"); ok {
 		t.Error("seed overwrote an existing per-server password")
 	}
-	if scope, ok := m2.Authenticate("changed"); !ok || scope != "beta" {
+	if scope, _, ok := m2.Authenticate("changed"); !ok || scope != "beta" {
 		t.Errorf("stored password lost after re-seed: (%q,%v)", scope, ok)
 	}
 }
@@ -228,6 +260,172 @@ func TestJobCRUDAndScope(t *testing.T) {
 	}
 	if len(m.Jobs(ScopeAll)) != 0 {
 		t.Error("job not deleted")
+	}
+}
+
+// schedulingClock returns a fixed "now" and the target unix for a daily 05:00
+// job, with now safely inside the default 10-minute window.
+func schedulingClock() (now time.Time, target int64) {
+	now = time.Date(2026, 7, 18, 4, 52, 0, 0, time.Local)
+	target = time.Date(2026, 7, 18, 5, 0, 0, 0, time.Local).Unix()
+	return now, target
+}
+
+func TestReserveDueDifferentServersSameTime(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+		{ID: "b", ServerID: "beta", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	due := m.reserveDueJobs(now)
+	if len(due) != 2 {
+		t.Fatalf("two distinct servers at the same time must both fire, got %d: %+v", len(due), due)
+	}
+	got := map[string]bool{due[0].serverID: true, due[1].serverID: true}
+	if !got["alpha"] || !got["beta"] {
+		t.Errorf("expected both alpha and beta, got %+v", due)
+	}
+	// Reserving alone must NOT record the occurrence.
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != 0 {
+			t.Errorf("reserve must not consume job %s: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+	// After committing, the occurrence is recorded and cannot fire again.
+	for _, d := range due {
+		m.commitReboot(d)
+	}
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != target {
+			t.Errorf("commit did not record job %s: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+	if again := m.reserveDueJobs(now.Add(2 * time.Minute)); len(again) != 0 {
+		t.Errorf("committed jobs re-fired within the same occurrence: %+v", again)
+	}
+}
+
+func TestReserveDueSameServerDuplicateFiresOnce(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+		{ID: "b", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	due := m.reserveDueJobs(now)
+	if len(due) != 1 {
+		t.Fatalf("two duplicate schedules on one server must fire exactly once, got %d", len(due))
+	}
+	// Both duplicates are folded into the one reservation, so committing it
+	// consumes both and neither can re-fire and double-reboot the server.
+	if len(due[0].jobs) != 2 {
+		t.Fatalf("both duplicate jobs should be folded into the reservation, got %d", len(due[0].jobs))
+	}
+	m.commitReboot(due[0])
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != target {
+			t.Errorf("duplicate job %s not consumed: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+	if again := m.reserveDueJobs(now.Add(1 * time.Minute)); len(again) != 0 {
+		t.Errorf("duplicate re-fired, would double-reboot: %+v", again)
+	}
+}
+
+func TestReserveDueSkipsBusyServerWithoutConsuming(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, _ := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+	m.active["alpha"] = &activeReboot{} // a reboot is already running
+
+	if due := m.reserveDueJobs(now); len(due) != 0 {
+		t.Fatalf("a busy server must not be scheduled again, got %+v", due)
+	}
+	if m.cfg.Jobs[0].LastFired != 0 {
+		t.Errorf("a job skipped for a busy server must stay eligible, LastFired=%d", m.cfg.Jobs[0].LastFired)
+	}
+}
+
+func TestReserveDueOutsideWindow(t *testing.T) {
+	m := newTestManager(t, "g")
+	// now is well before the 10-minute window (target 05:00, window from 04:50).
+	now := time.Date(2026, 7, 18, 4, 30, 0, 0, time.Local)
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+	if due := m.reserveDueJobs(now); len(due) != 0 {
+		t.Errorf("job outside its lead window must not fire, got %+v", due)
+	}
+}
+
+func TestTickLaunchesEachDueServer(t *testing.T) {
+	m := newTestManager(t, "g")
+	var launched []string
+	m.launch = func(serverID string, countdown int, by string) error {
+		launched = append(launched, serverID)
+		return nil
+	}
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+		{ID: "b", ServerID: "beta", Type: JobDaily, Time: "05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	m.tick(now)
+	if len(launched) != 2 {
+		t.Fatalf("tick should launch both servers, launched %v", launched)
+	}
+	// A successful launch commits the occurrence.
+	for _, j := range m.cfg.Jobs {
+		if j.LastFired != target {
+			t.Errorf("successful launch did not commit job %s: LastFired=%d", j.ID, j.LastFired)
+		}
+	}
+}
+
+func TestTickRetriesWhenLaunchFails(t *testing.T) {
+	m := newTestManager(t, "g")
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobOnce, Time: "2026-07-18T05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	attempts := 0
+	fail := true
+	m.launch = func(serverID string, countdown int, by string) error {
+		attempts++
+		if fail {
+			return errors.New("server is not running")
+		}
+		return nil
+	}
+
+	// First tick: launch fails, so the occurrence must NOT be recorded and the
+	// one-time job must stay enabled so it can retry.
+	m.tick(now)
+	if m.cfg.Jobs[0].LastFired != 0 {
+		t.Errorf("failed launch must not consume the occurrence, LastFired=%d", m.cfg.Jobs[0].LastFired)
+	}
+	if !m.cfg.Jobs[0].Enabled {
+		t.Error("failed launch must not disable a one-time job")
+	}
+
+	// Second tick within the window: launch now succeeds and commits.
+	fail = false
+	m.tick(now.Add(1 * time.Minute))
+	if attempts != 2 {
+		t.Errorf("expected a retry, got %d launch attempts", attempts)
+	}
+	if m.cfg.Jobs[0].LastFired != target {
+		t.Errorf("successful retry must commit the occurrence, LastFired=%d", m.cfg.Jobs[0].LastFired)
+	}
+	if m.cfg.Jobs[0].Enabled {
+		t.Error("committed one-time job must be disabled")
 	}
 }
 
