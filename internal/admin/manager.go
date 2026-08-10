@@ -20,6 +20,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -97,6 +98,10 @@ type Manager struct {
 	order    []string
 	active   map[string]*activeReboot
 	globalPw string // global admin password (raw, from env); empty disables the GUI
+	syncDir  func(string) error
+
+	persistRetryAt      time.Time
+	persistRetryBackoff time.Duration
 
 	baseCtx context.Context
 
@@ -115,6 +120,7 @@ func NewManager(path string, servers []ServerRef, globalPassword string, seeds m
 		servers:  make(map[string]ServerRef, len(servers)),
 		active:   make(map[string]*activeReboot),
 		globalPw: globalPassword,
+		syncDir:  syncParentDirectory,
 	}
 	for _, s := range servers {
 		m.servers[s.ID] = s
@@ -141,7 +147,10 @@ func NewManager(path string, servers []ServerRef, globalPassword string, seeds m
 		}
 	}
 	if changed {
-		if err := m.save(); err != nil {
+		m.mu.Lock()
+		err := m.saveRecoverably()
+		m.mu.Unlock()
+		if err != nil {
 			log.Printf("admin: could not persist seeded server passwords: %v", err)
 		}
 	}
@@ -252,7 +261,7 @@ func (m *Manager) SetServerPassword(serverID, password string) error {
 	} else {
 		m.cfg.ServerAuth[serverID] = hashPassword(password)
 	}
-	if err := m.save(); err != nil {
+	if err := m.saveRecoverably(); err != nil {
 		if existed {
 			m.cfg.ServerAuth[serverID] = previous
 		} else {
@@ -350,7 +359,7 @@ func (m *Manager) AddJob(j *RebootJob) (*RebootJob, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cfg.Jobs = append(m.cfg.Jobs, j)
-	if err := m.save(); err != nil {
+	if err := m.saveRecoverably(); err != nil {
 		m.cfg.Jobs = m.cfg.Jobs[:len(m.cfg.Jobs)-1]
 		return nil, fmt.Errorf("persist reboot schedule: %w", err)
 	}
@@ -368,7 +377,7 @@ func (m *Manager) DeleteJob(scope, id string) (bool, error) {
 			updated = append(updated, previous[:i]...)
 			updated = append(updated, previous[i+1:]...)
 			m.cfg.Jobs = updated
-			if err := m.save(); err != nil {
+			if err := m.saveRecoverably(); err != nil {
 				m.cfg.Jobs = previous
 				return false, fmt.Errorf("persist reboot schedule deletion: %w", err)
 			}
@@ -390,7 +399,7 @@ func (m *Manager) ToggleJob(scope, id string) (bool, error) {
 			if j.Enabled {
 				j.LastFired = 0
 			}
-			if err := m.save(); err != nil {
+			if err := m.saveRecoverably(); err != nil {
 				j.Enabled = previousEnabled
 				j.LastFired = previousLastFired
 				return false, fmt.Errorf("persist reboot schedule update: %w", err)
@@ -409,6 +418,29 @@ func newID() string {
 
 // --- Persistence ------------------------------------------------------------
 
+// directorySyncError means the state file was renamed successfully, but the
+// parent directory could not be synced. The replacement may already be visible;
+// callers must not roll back the corresponding in-memory mutation.
+type directorySyncError struct {
+	dir string
+	err error
+}
+
+func (e *directorySyncError) Error() string {
+	return fmt.Sprintf(
+		"sync state directory %q after replacement (replacement may already be visible): %v",
+		e.dir,
+		e.err,
+	)
+}
+
+func (e *directorySyncError) Unwrap() error { return e.err }
+
+func replacementMayBeVisible(err error) bool {
+	var syncErr *directorySyncError
+	return errors.As(err, &syncErr)
+}
+
 func load(path string) configFile {
 	var cfg configFile
 	f, err := os.Open(path) // #nosec G304 -- path is server config, not user input
@@ -420,6 +452,20 @@ func load(path string) configFile {
 		log.Printf("admin: could not read %s: %v", path, err)
 	}
 	return cfg
+}
+
+// saveRecoverably treats a post-rename directory-sync failure as a committed
+// in-memory mutation and queues another full-config write. Pre-rename failures
+// are returned so callers can roll back safely.
+func (m *Manager) saveRecoverably() error {
+	err := m.save()
+	if err == nil || !replacementMayBeVisible(err) {
+		return err
+	}
+
+	retryIn := m.schedulePersistenceRetryLocked(time.Now())
+	log.Printf("admin: state replacement has uncertain durability; retrying in %s: %v", retryIn, err)
+	return nil
 }
 
 // save persists the config atomically and flushes it before returning. Callers
@@ -462,5 +508,14 @@ func (m *Manager) save() error {
 		return fmt.Errorf("replace state file %q: %w", m.path, err)
 	}
 	removeTmp = false
+
+	syncDir := m.syncDir
+	if syncDir == nil {
+		syncDir = syncParentDirectory
+	}
+	if err := syncDir(dir); err != nil {
+		return &directorySyncError{dir: dir, err: err}
+	}
+	m.clearPersistenceRetryLocked()
 	return nil
 }

@@ -311,6 +311,47 @@ func TestUpdateRollsBackWhenPersistenceFails(t *testing.T) {
 	})
 }
 
+func TestDirectorySyncFailureRetainsVisibleMutationForRetry(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "admin.json")
+	refs := []ServerRef{{ID: "alpha"}}
+	m := NewManager(path, refs, "g", nil)
+
+	syncCalls := 0
+	m.syncDir = func(string) error {
+		syncCalls++
+		if syncCalls == 1 {
+			return errors.New("directory sync failed")
+		}
+		return nil
+	}
+
+	if err := m.SetServerPassword("alpha", "secret"); err != nil {
+		t.Fatalf("post-rename sync failure should retain the mutation: %v", err)
+	}
+	if !m.HasServerPassword("alpha") {
+		t.Fatal("post-rename sync failure rolled back the visible mutation")
+	}
+	if m.persistRetryAt.IsZero() {
+		t.Fatal("post-rename sync failure did not schedule a retry")
+	}
+
+	// The rename completed before directory sync failed, so the replacement is
+	// already readable even though its crash durability was uncertain.
+	reloaded := NewManager(path, refs, "g", nil)
+	if scope, _, ok := reloaded.Authenticate("secret"); !ok || scope != "alpha" {
+		t.Fatalf("visible replacement was not readable: scope=%q ok=%v", scope, ok)
+	}
+
+	m.retryPersistence(m.persistRetryAt)
+	if syncCalls != 2 {
+		t.Fatalf("directory sync calls = %d, want 2", syncCalls)
+	}
+	if !m.persistRetryAt.IsZero() {
+		t.Fatal("successful retry did not clear retry state")
+	}
+}
+
 func TestSeededPasswords(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "admin.json")
@@ -406,7 +447,7 @@ func TestReserveDueDifferentServersSameTime(t *testing.T) {
 	}
 	// After committing, the occurrence is recorded and cannot fire again.
 	for _, d := range due {
-		m.commitReboot(d)
+		m.commitReboot(d, now)
 	}
 	for _, j := range m.cfg.Jobs {
 		if j.LastFired != target {
@@ -435,7 +476,7 @@ func TestReserveDueSameServerDuplicateFiresOnce(t *testing.T) {
 	if len(due[0].jobs) != 2 {
 		t.Fatalf("both duplicate jobs should be folded into the reservation, got %d", len(due[0].jobs))
 	}
-	m.commitReboot(due[0])
+	m.commitReboot(due[0], now)
 	for _, j := range m.cfg.Jobs {
 		if j.LastFired != target {
 			t.Errorf("duplicate job %s not consumed: LastFired=%d", j.ID, j.LastFired)
@@ -537,6 +578,64 @@ func TestTickRetriesWhenLaunchFails(t *testing.T) {
 	}
 	if m.cfg.Jobs[0].Enabled {
 		t.Error("committed one-time job must be disabled")
+	}
+}
+
+func TestTickRetriesCommitPersistenceWithoutRelaunch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "admin.json")
+	refs := []ServerRef{{ID: "alpha"}}
+	m := NewManager(path, refs, "g", nil)
+	now, target := schedulingClock()
+	m.cfg.Jobs = []*RebootJob{
+		{ID: "a", ServerID: "alpha", Type: JobOnce, Time: "2026-07-18T05:00", LeadSeconds: 600, Enabled: true},
+	}
+
+	launches := 0
+	m.launch = func(serverID string, countdown int, by string) error {
+		launches++
+		return nil
+	}
+
+	// Make the commit write fail after a successful launch.
+	m.path = t.TempDir()
+	m.tick(now)
+	if launches != 1 {
+		t.Fatalf("launches after initial tick = %d, want 1", launches)
+	}
+	if m.cfg.Jobs[0].LastFired != target || m.cfg.Jobs[0].Enabled {
+		t.Fatalf("failed persistence must leave completed state dirty: %+v", m.cfg.Jobs[0])
+	}
+	firstRetryAt := m.persistRetryAt
+	firstBackoff := m.persistRetryBackoff
+	if firstRetryAt.IsZero() || firstBackoff != persistenceRetryInitial {
+		t.Fatalf("initial retry = (%v, %v), want a scheduled %v backoff", firstRetryAt, firstBackoff, persistenceRetryInitial)
+	}
+
+	// A failed retry must back off and still must not launch again.
+	m.tick(firstRetryAt)
+	if launches != 1 {
+		t.Fatalf("failed persistence retry launched the reboot again: %d launches", launches)
+	}
+	secondRetryAt := m.persistRetryAt
+	if m.persistRetryBackoff <= firstBackoff || !secondRetryAt.After(firstRetryAt) {
+		t.Fatalf("retry did not back off: first=(%v, %v) second=(%v, %v)", firstRetryAt, firstBackoff, secondRetryAt, m.persistRetryBackoff)
+	}
+
+	// Restore a writable path. A later scheduler tick must persist the dirty
+	// completion state without launching the completed occurrence again.
+	m.path = path
+	m.tick(secondRetryAt)
+	if launches != 1 {
+		t.Fatalf("persistence retry launched the reboot again: %d launches", launches)
+	}
+
+	reloaded := NewManager(path, refs, "g", nil).Jobs(ScopeAll)
+	if len(reloaded) != 1 {
+		t.Fatalf("reloaded jobs = %d, want 1", len(reloaded))
+	}
+	if reloaded[0].LastFired != target || reloaded[0].Enabled {
+		t.Fatalf("retry did not persist completed state: %+v", reloaded[0])
 	}
 }
 
