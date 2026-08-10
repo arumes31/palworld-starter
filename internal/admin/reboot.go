@@ -137,7 +137,9 @@ func (m *Manager) commitReboot(d *dueReboot) {
 			j.Enabled = false
 		}
 	}
-	m.save()
+	if err := m.save(); err != nil {
+		log.Printf("admin: could not persist completed reboot schedule: %v", err)
+	}
 }
 
 // NextTarget returns the next target (reboot) time for a job relative to now.

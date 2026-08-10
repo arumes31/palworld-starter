@@ -200,6 +200,117 @@ func TestPasswordPersistence(t *testing.T) {
 	}
 }
 
+func TestAdminConfigPersistence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "admin.json")
+	refs := []ServerRef{{ID: "alpha"}}
+
+	m1 := NewManager(path, refs, "g", nil)
+	if err := m1.SetServerPassword("alpha", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	job, err := m1.AddJob(&RebootJob{
+		ServerID:    "alpha",
+		Type:        JobDaily,
+		Time:        "04:00",
+		LeadSeconds: 300,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m2 := NewManager(path, refs, "g", nil)
+	if scope, _, ok := m2.Authenticate("secret"); !ok || scope != "alpha" {
+		t.Fatalf("reloaded auth = (%q, %v), want (alpha, true)", scope, ok)
+	}
+	jobs := m2.Jobs(ScopeAll)
+	if len(jobs) != 1 {
+		t.Fatalf("reloaded jobs = %d, want 1", len(jobs))
+	}
+	if jobs[0].ID != job.ID || jobs[0].ServerID != "alpha" || jobs[0].Time != "04:00" {
+		t.Fatalf("reloaded job = %+v, want %+v", jobs[0], job)
+	}
+}
+
+func TestCreateRollsBackWhenPersistenceFails(t *testing.T) {
+	refs := []ServerRef{{ID: "alpha"}}
+
+	t.Run("server password", func(t *testing.T) {
+		m := NewManager(filepath.Join(t.TempDir(), "admin.json"), refs, "g", nil)
+		m.path = t.TempDir()
+		if err := m.SetServerPassword("alpha", "secret"); err == nil {
+			t.Fatal("SetServerPassword succeeded without persisting the password")
+		}
+		if m.HasServerPassword("alpha") {
+			t.Fatal("failed password write remained active only in memory")
+		}
+	})
+
+	t.Run("reboot schedule", func(t *testing.T) {
+		m := NewManager(filepath.Join(t.TempDir(), "admin.json"), refs, "g", nil)
+		m.path = t.TempDir()
+		_, err := m.AddJob(&RebootJob{
+			ServerID: "alpha",
+			Type:     JobDaily,
+			Time:     "04:00",
+		})
+		if err == nil {
+			t.Fatal("AddJob succeeded without persisting the schedule")
+		}
+		if jobs := m.Jobs(ScopeAll); len(jobs) != 0 {
+			t.Fatalf("failed schedule write remained active only in memory: %+v", jobs)
+		}
+	})
+}
+
+func TestUpdateRollsBackWhenPersistenceFails(t *testing.T) {
+	refs := []ServerRef{{ID: "alpha"}}
+
+	t.Run("server password", func(t *testing.T) {
+		m := NewManager(filepath.Join(t.TempDir(), "admin.json"), refs, "g", nil)
+		if err := m.SetServerPassword("alpha", "secret"); err != nil {
+			t.Fatal(err)
+		}
+		m.path = t.TempDir()
+
+		if err := m.SetServerPassword("alpha", "replacement"); err == nil {
+			t.Fatal("SetServerPassword succeeded without persisting the replacement")
+		}
+		if scope, _, ok := m.Authenticate("secret"); !ok || scope != "alpha" {
+			t.Fatal("failed password replacement discarded the previous credential")
+		}
+		if _, _, ok := m.Authenticate("replacement"); ok {
+			t.Fatal("failed password replacement remained active only in memory")
+		}
+	})
+
+	t.Run("reboot schedule", func(t *testing.T) {
+		m := NewManager(filepath.Join(t.TempDir(), "admin.json"), refs, "g", nil)
+		job, err := m.AddJob(&RebootJob{
+			ServerID: "alpha",
+			Type:     JobDaily,
+			Time:     "04:00",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.path = t.TempDir()
+
+		if updated, err := m.ToggleJob(ScopeAll, job.ID); err == nil || updated {
+			t.Fatal("ToggleJob succeeded without persisting the update")
+		}
+		if jobs := m.Jobs(ScopeAll); len(jobs) != 1 || !jobs[0].Enabled {
+			t.Fatalf("failed toggle changed in-memory schedule: %+v", jobs)
+		}
+		if deleted, err := m.DeleteJob(ScopeAll, job.ID); err == nil || deleted {
+			t.Fatal("DeleteJob succeeded without persisting the deletion")
+		}
+		if jobs := m.Jobs(ScopeAll); len(jobs) != 1 {
+			t.Fatalf("failed deletion removed in-memory schedule: %+v", jobs)
+		}
+	})
+}
+
 func TestSeededPasswords(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "admin.json")
@@ -244,7 +355,7 @@ func TestJobCRUDAndScope(t *testing.T) {
 	if len(m.Jobs("beta")) != 0 {
 		t.Error("beta scope must not see alpha jobs")
 	}
-	if m.DeleteJob("beta", job.ID) {
+	if deleted, err := m.DeleteJob("beta", job.ID); err != nil || deleted {
 		t.Error("beta scope must not delete alpha job")
 	}
 	if len(m.Jobs(ScopeAll)) != 1 {
@@ -252,10 +363,10 @@ func TestJobCRUDAndScope(t *testing.T) {
 	}
 
 	// Toggle then delete under an authorised scope.
-	if !m.ToggleJob("alpha", job.ID) {
+	if updated, err := m.ToggleJob("alpha", job.ID); err != nil || !updated {
 		t.Error("alpha scope should toggle its own job")
 	}
-	if !m.DeleteJob(ScopeAll, job.ID) {
+	if deleted, err := m.DeleteJob(ScopeAll, job.ID); err != nil || !deleted {
 		t.Error("global delete failed")
 	}
 	if len(m.Jobs(ScopeAll)) != 0 {
