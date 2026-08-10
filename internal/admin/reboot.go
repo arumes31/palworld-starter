@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	persistenceRetryInitial = 20 * time.Second
+	persistenceRetryMax     = 5 * time.Minute
+)
+
 // Start launches the reboot scheduler. It runs until ctx is cancelled.
 func (m *Manager) Start(ctx context.Context) {
 	m.mu.Lock()
@@ -42,6 +47,8 @@ type dueReboot struct {
 // job occurrence is committed only after a successful launch; a failed launch
 // leaves it unrecorded so it is retried on a later tick.
 func (m *Manager) tick(now time.Time) {
+	m.retryPersistence(now)
+
 	for _, d := range m.reserveDueJobs(now) {
 		log.Printf("admin: scheduled reboot %s for server %q in %ds", d.jobID, d.serverID, d.countdown)
 		if err := m.launch(d.serverID, d.countdown, "schedule "+d.jobID); err != nil {
@@ -50,7 +57,7 @@ func (m *Manager) tick(now time.Time) {
 			log.Printf("admin: could not start scheduled reboot: %v", err)
 			continue
 		}
-		m.commitReboot(d)
+		m.commitReboot(d, now)
 	}
 }
 
@@ -128,7 +135,7 @@ func (m *Manager) reserveDueJobs(now time.Time) []*dueReboot {
 // commitReboot records that a reserved reboot has been launched so its jobs do
 // not fire again for the same occurrence. It is called only after a successful
 // launch; on failure the reservation is dropped and the occurrence retried.
-func (m *Manager) commitReboot(d *dueReboot) {
+func (m *Manager) commitReboot(d *dueReboot, now time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, j := range d.jobs {
@@ -137,7 +144,54 @@ func (m *Manager) commitReboot(d *dueReboot) {
 			j.Enabled = false
 		}
 	}
-	m.save()
+	if err := m.save(); err != nil {
+		retryIn := m.schedulePersistenceRetryLocked(now)
+		log.Printf("admin: could not persist completed reboot schedule; retrying in %s: %v", retryIn, err)
+	}
+}
+
+// schedulePersistenceRetryLocked queues a full-config write without resetting
+// an existing backoff. Callers must hold m.mu.
+func (m *Manager) schedulePersistenceRetryLocked(now time.Time) time.Duration {
+	if m.persistRetryBackoff <= 0 {
+		m.persistRetryBackoff = persistenceRetryInitial
+	}
+	if m.persistRetryAt.IsZero() {
+		m.persistRetryAt = now.Add(m.persistRetryBackoff)
+	}
+	return m.persistRetryBackoff
+}
+
+// retryPersistence retries only the state write; it never calls m.launch, so a
+// completed reboot cannot be launched again by this path.
+func (m *Manager) retryPersistence(now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.persistRetryAt.IsZero() || now.Before(m.persistRetryAt) {
+		return
+	}
+
+	if err := m.save(); err != nil {
+		nextBackoff := m.persistRetryBackoff * 2
+		if nextBackoff < persistenceRetryInitial {
+			nextBackoff = persistenceRetryInitial
+		}
+		if nextBackoff > persistenceRetryMax {
+			nextBackoff = persistenceRetryMax
+		}
+		m.persistRetryBackoff = nextBackoff
+		m.persistRetryAt = now.Add(nextBackoff)
+		log.Printf("admin: persistence retry failed; retrying in %s: %v", nextBackoff, err)
+		return
+	}
+	log.Printf("admin: persistence retry succeeded")
+}
+
+// clearPersistenceRetryLocked clears retry state after the complete config has
+// been durably persisted. Callers must hold m.mu.
+func (m *Manager) clearPersistenceRetryLocked() {
+	m.persistRetryAt = time.Time{}
+	m.persistRetryBackoff = 0
 }
 
 // NextTarget returns the next target (reboot) time for a job relative to now.

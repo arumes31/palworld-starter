@@ -327,13 +327,23 @@ func (s *Server) handleAdminSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 		s.adminRedirect(w, r, "Schedule added", "")
 	case "delete":
-		if !s.admin.DeleteJob(scope, r.FormValue("id")) {
+		deleted, err := s.admin.DeleteJob(scope, r.FormValue("id"))
+		if err != nil {
+			s.adminRedirect(w, r, "", err.Error())
+			return
+		}
+		if !deleted {
 			s.adminRedirect(w, r, "", "schedule not found")
 			return
 		}
 		s.adminRedirect(w, r, "Schedule removed", "")
 	case "toggle":
-		if !s.admin.ToggleJob(scope, r.FormValue("id")) {
+		updated, err := s.admin.ToggleJob(scope, r.FormValue("id"))
+		if err != nil {
+			s.adminRedirect(w, r, "", err.Error())
+			return
+		}
+		if !updated {
 			s.adminRedirect(w, r, "", "schedule not found")
 			return
 		}
