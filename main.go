@@ -84,7 +84,7 @@ func loadInstances() []*web.Instance {
 		if raw := os.Getenv("SERVER_" + key + "_RESTPORT"); raw != "" {
 			p, err := strconv.Atoi(raw)
 			if err != nil || p < 1 || p > 65535 {
-				log.Fatalf("SERVER_%s_RESTPORT is not a valid port: %q", key, raw)
+				log.Fatalf("SERVER_%s_RESTPORT is not a valid port: %q", key, raw) // #nosec G706 -- %q escapes controls.
 			}
 			restPort = p
 		}
@@ -285,13 +285,12 @@ func main() {
 
 	srv := web.New(instances, "templates", "./static", adminMgr)
 
-	// No WriteTimeout: /stop legitimately blocks for the graceful in-game
-	// shutdown countdown, which can exceed a minute.
 	httpSrv := &http.Server{
 		Addr:              "0.0.0.0:5000",
 		Handler:           srv.Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      2 * time.Minute,
 		IdleTimeout:       120 * time.Second,
 	}
 

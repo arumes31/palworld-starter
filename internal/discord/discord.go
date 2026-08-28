@@ -4,11 +4,13 @@ package discord
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,6 +39,9 @@ func InviteURL() string {
 	if botToken == "" || guildID == "" || channelID == "" {
 		return fallbackURL
 	}
+	if _, err := strconv.ParseUint(channelID, 10, 64); err != nil {
+		return fallbackURL
+	}
 
 	inviteMu.Lock()
 	cached := inviteCache
@@ -62,7 +67,10 @@ func refreshInvite(botToken, channelID string) {
 		inviteMu.Unlock()
 	}()
 
-	url := fmt.Sprintf("https://discord.com/api/v10/channels/%s/invites", channelID)
+	endpoint, err := url.JoinPath("https://discord.com/api/v10", "channels", channelID, "invites")
+	if err != nil {
+		return
+	}
 	payload := map[string]interface{}{
 		"max_age":   86400,
 		"max_uses":  0,
@@ -75,14 +83,21 @@ func refreshInvite(botToken, channelID string) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(payloadBytes))
+	// #nosec G704 -- channelID is validated as an unsigned Discord snowflake and the host is constant.
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return
 	}
 	req.Header.Set("Authorization", "Bot "+botToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	hc := &http.Client{Timeout: 10 * time.Second}
+	hc := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	// #nosec G704 -- the request host is the constant discord.com and redirects are disabled.
 	resp, err := hc.Do(req)
 	if err != nil {
 		log.Printf("Discord invite API error: %v", err)
@@ -91,8 +106,14 @@ func refreshInvite(botToken, channelID string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Discord invite API status %d: %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		safeBody := strings.Map(func(r rune) rune {
+			if r < 0x20 || r == 0x7f {
+				return ' '
+			}
+			return r
+		}, string(body))
+		log.Printf("Discord invite API status %d: %s", resp.StatusCode, safeBody) // #nosec G706 -- controls removed above.
 		return
 	}
 

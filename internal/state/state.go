@@ -65,7 +65,7 @@ func load(filePath string) int {
 	}
 	// Try to ensure parent directory exists
 	dir := filepath.Dir(filePath)
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0o700)
 	return 900 // Default 15 minutes grace on first launch
 }
 
@@ -74,7 +74,7 @@ func load(filePath string) int {
 func (s *State) save() {
 	content := timeFileContent{TimeRemaining: s.timeRemaining}
 	dir := filepath.Dir(s.filePath)
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0o700)
 
 	tmpPath := s.filePath + ".tmp"
 	file, err := os.Create(tmpPath) // #nosec G304 -- path comes from server config, not user input

@@ -13,8 +13,28 @@ A lightweight web application that controls and manages a Palworld server runnin
 ## Building & Running
 
 ### Prerequisites
-- Go 1.26+ installed on your host.
-- Docker running and accessible (via `DOCKER_HOST` or standard socket).
+- Go 1.26.6+ for local development.
+- Docker Compose for the hardened two-service deployment.
+
+### Run with Docker Compose
+
+```bash
+cp .env.example .env
+openssl rand -hex 32  # copy this value to BROKER_TOKEN in .env
+# Set ADMIN_PASSWORD and the Docker socket group in .env, then:
+docker compose up --build -d
+```
+
+Create the persistent state directory with the container user's ownership before
+the first start (`mkdir -p data && sudo chown 10001:10001 data`). Put the app
+behind an HTTPS reverse proxy: session cookies are intentionally marked
+`Secure`, so the admin login is not supported over plain HTTP.
+
+The public `palworld-starter` container never receives the Docker socket. A
+private, non-root `docker-broker` service owns that mount and exposes only
+status, bounded logs, start, stop, and the literal `backup` operation for exact
+container names in `PALWORLD_CONTAINERS`. Both services drop all capabilities,
+use read-only root filesystems, and set `no-new-privileges`.
 
 ### Run Locally
 ```bash
@@ -39,8 +59,11 @@ Set the following environment variables:
 
 | Variable | Description | Default |
 |---|---|---|
-| `DOCKER_HOST` | URI of the Docker daemon socket | `unix:///var/run/docker.sock` |
 | `DOCKER_CONTAINER_NAME` | Name of the container managing Palworld | `my_container` |
+| `BROKER_URL` | Private container-control broker URL | `http://docker-broker:8081` |
+| `BROKER_TOKEN` | Random shared broker credential (minimum 32 characters) | *Required for control operations* |
+| `PALWORLD_CONTAINERS` | Exact comma-separated broker allowlist (Compose) | `palworld-server` |
+| `DOCKER_GID` | Host group ID that may access the Docker socket (broker only) | `999` |
 | `DISCORD_BOT_TOKEN` | Token for the Discord bot | *Optional* |
 | `DISCORD_GUILD_ID` | Guild ID of your Discord Server | *Optional* |
 | `DISCORD_CHANNEL_ID` | Channel ID for generating invites | *Optional* |
@@ -52,7 +75,7 @@ Set the following environment variables:
 | `BING_SITE_VERIFICATION` | Bing Webmaster Tools verification token | *Optional* |
 | `YANDEX_SITE_VERIFICATION` | Yandex Webmaster verification token | *Optional* |
 | `SERVERS` | Comma-separated server ids to enable multi-server mode | *unset (single server)* |
-| `ADMIN_PASSWORD` | Palworld REST API admin password | *scraped from the game container's env* |
+| `ADMIN_PASSWORD` | Palworld REST API admin password | *Required; never scraped through Docker* |
 | `ADMIN_GUI_PASSWORD` | Global admin-GUI login password. Enables the admin GUI at `/admin` when set | *unset (admin GUI disabled)* |
 | `SESSION_KEY` | Secret used to encrypt session cookies; set it so sessions survive restarts | *random per start* |
 | `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy) | *unset (loopback-only)* |
@@ -96,7 +119,9 @@ environment:
   SERVER_PAL2_RESTPORT: "8222"
 ```
 
-Each server keeps its own timer (`/hostmem/gamecontroller-<id>-time_remaining.json`),
+Add every configured `SERVER_<ID>_CONTAINER` value to the broker's exact
+`PALWORLD_CONTAINERS` allowlist. Each server keeps its own timer
+(`/data/gamecontroller-<id>-time_remaining.json`),
 tickers, backups and boot page; without `SERVERS` the legacy single-server
 variables keep working unchanged.
 

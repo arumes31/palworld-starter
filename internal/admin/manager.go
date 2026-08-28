@@ -475,7 +475,7 @@ func (m *Manager) save() error {
 		return nil
 	}
 	dir := filepath.Dir(m.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state directory %q: %w", dir, err)
 	}
 

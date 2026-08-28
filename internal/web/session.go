@@ -82,7 +82,9 @@ func saveSession(w http.ResponseWriter, data *SessionData) {
 		Name:     "session",
 		Value:    encrypted,
 		Path:     "/",
+		Secure:   true,
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 

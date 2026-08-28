@@ -1,6 +1,6 @@
 module github.com/arumes31/palworld-starter
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/containerd/errdefs v1.0.0

@@ -1,29 +1,56 @@
 services:
+  docker-broker:
+    build:
+      context: .
+      target: broker
+    restart: unless-stopped
+    environment:
+      BROKER_TOKEN: ${BROKER_TOKEN:?set a random token of at least 32 characters}
+      BROKER_ALLOWED_CONTAINERS: ${PALWORLD_CONTAINERS:-palworld-server}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    group_add:
+      - ${DOCKER_GID:-999}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [control]
+
   palworld-starter:
-    build: .
-    container_name: palworld-starter
+    build:
+      context: .
+      target: app
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
-      # Mount Docker socket so the app can manage Palworld containers
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Mount data directory so the remaining time state survives restarts
       - ./data:/data
     environment:
-      - STATE_DIR=/data
-      - DOCKER_CONTAINER_NAME=palworld-server
-      - REST_API_HOST=palworld-server
-      # Admin GUI at /admin is disabled until a password is set.
-      # Uncomment and set a STRONG password to enable it:
-      # - ADMIN_GUI_PASSWORD=please-change-me
-      # Timezone used for scheduled (daily/one-time) reboots. Defaults to UTC.
-      - TZ=Europe/Vienna
-    networks:
-      - default
-      - test_server
+      STATE_DIR: /data
+      DOCKER_CONTAINER_NAME: palworld-server
+      REST_API_HOST: palworld-server
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set the Palworld REST API password}
+      BROKER_URL: http://docker-broker:8081
+      BROKER_TOKEN: ${BROKER_TOKEN:?set a random token of at least 32 characters}
+      TZ: ${TZ:-Europe/Vienna}
+    depends_on:
+      docker-broker:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [default, test_server, control]
 
 networks:
+  control:
+    internal: true
   test_server:
     external: true
     name: palworld-test-server_default

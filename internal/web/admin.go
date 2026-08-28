@@ -135,7 +135,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	sd.AdminExpires = time.Now().Add(adminSessionTTL).Unix()
 	ensureCsrf(sd)
 	saveSession(w, sd)
-	log.Printf("admin: login for scope %q", scope)
+	log.Printf("admin: login for scope %q", scope) // #nosec G706 -- %q escapes controls.
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
