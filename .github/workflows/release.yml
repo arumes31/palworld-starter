@@ -8,21 +8,23 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.5'
-      - name: Run go mod tidy
-        run: go mod tidy
+          go-version: 1.26.6
+          cache: true
+      - name: Test
+        run: go test -race ./...
       - name: Build
         run: |
           CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter-linux-amd64 .
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o palworld-starter-linux-arm64 .
       - name: Create Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
         with:
           files: |
             palworld-starter-linux-amd64

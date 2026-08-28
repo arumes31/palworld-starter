@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,8 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containerd/errdefs"
-	"github.com/moby/moby/client"
+	"github.com/arumes31/palworld-starter/internal/control"
 )
 
 // PlayerInfo holds the subset of player data that is safe to expose publicly.
@@ -32,7 +32,7 @@ type PlayerInfo struct {
 
 // Controller manages one Palworld server container.
 type Controller struct {
-	cli           *client.Client
+	cli           *control.Client
 	containerName string
 	apiBase       string
 
@@ -40,9 +40,8 @@ type Controller struct {
 	statusCache string
 	statusTime  time.Time
 
-	passwordMu      sync.Mutex
-	adminPassword   string
-	passwordFromEnv bool
+	passwordMu    sync.Mutex
+	adminPassword string
 
 	playersMu    sync.Mutex
 	playersCache []AdminPlayerInfo // full records; the public view strips user ids
@@ -65,24 +64,27 @@ type Controller struct {
 
 // NewController creates a controller for the named container whose Palworld
 // REST API listens on the given host and port. adminPassword authenticates
-// REST calls; when empty it is scraped from the container's ADMIN_PASSWORD
-// env on the first inspect. A Docker init failure is logged, not fatal - all
-// methods degrade gracefully.
+// REST calls. Container operations go through the narrow private broker; the
+// public process never receives the Docker socket. Broker configuration errors
+// are logged rather than fatal so read-only web views can still start.
 func NewController(containerName, restHost string, restPort int, adminPassword string) *Controller {
-	cli, err := client.New(client.FromEnv)
+	brokerURL := os.Getenv("BROKER_URL")
+	if brokerURL == "" {
+		brokerURL = "http://docker-broker:8081"
+	}
+	cli, err := control.NewClient(brokerURL, os.Getenv("BROKER_TOKEN"))
 	if err != nil {
-		log.Printf("Failed to initialize Docker client: %v", err)
+		log.Printf("Failed to initialize container-control client: %v", err)
 		cli = nil
 	}
 	if restHost == "" {
 		restHost = "localhost"
 	}
 	return &Controller{
-		cli:             cli,
-		containerName:   containerName,
-		apiBase:         fmt.Sprintf("http://%s:%d/v1/api", restHost, restPort),
-		adminPassword:   adminPassword,
-		passwordFromEnv: adminPassword != "",
+		cli:           cli,
+		containerName: containerName,
+		apiBase:       fmt.Sprintf("http://%s:%d/v1/api", restHost, restPort),
+		adminPassword: adminPassword,
 	}
 }
 
@@ -117,28 +119,15 @@ func (c *Controller) Status() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	inspect, err := c.cli.ContainerInspect(ctx, c.containerName, client.ContainerInspectOptions{})
+	status, err := c.cli.Status(ctx, c.containerName)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
+		if errors.Is(err, control.ErrNotFound) {
 			return "exited"
 		}
-		log.Printf("Docker inspect error: %v", err)
+		log.Printf("Container status error: %v", err)
 		return "unknown"
 	}
-
-	// Fallback for setups that don't configure ADMIN_PASSWORD on this
-	// process: scrape it from the game container's environment.
-	c.passwordMu.Lock()
-	if !c.passwordFromEnv {
-		for _, env := range inspect.Container.Config.Env {
-			if strings.HasPrefix(env, "ADMIN_PASSWORD=") {
-				c.adminPassword = strings.SplitN(env, "=", 2)[1]
-			}
-		}
-	}
-	c.passwordMu.Unlock()
-
-	return string(inspect.Container.State.Status)
+	return status
 }
 
 // CachedStatus returns the container status, cached for 30 seconds.
@@ -174,24 +163,11 @@ func (c *Controller) IsPaused() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	options := client.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Tail:       "200",
-	}
-
-	reader, err := c.cli.ContainerLogs(ctx, c.containerName, options)
+	content, err := c.cli.Logs(ctx, c.containerName)
 	if err != nil {
 		return false
 	}
-	defer reader.Close()
-
-	content, err := io.ReadAll(reader)
-	if err != nil {
-		return false
-	}
-
-	lines := strings.Split(string(content), "\n")
+	lines := strings.Split(content, "\n")
 	paused := false
 
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -481,32 +457,10 @@ func (c *Controller) exec(cmd []string) (int, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	config := client.ExecCreateOptions{
-		Cmd:          cmd,
-		AttachStdout: true,
-		AttachStderr: true,
+	if len(cmd) != 1 || cmd[0] != "backup" {
+		return -1, "", fmt.Errorf("container command is not allowlisted")
 	}
-
-	response, err := c.cli.ExecCreate(ctx, c.containerName, config)
-	if err != nil {
-		return -1, "", err
-	}
-
-	resp, err := c.cli.ExecAttach(ctx, response.ID, client.ExecAttachOptions{})
-	if err != nil {
-		return -1, "", err
-	}
-	defer resp.Close()
-
-	var out bytes.Buffer
-	_, _ = io.Copy(&out, resp.Reader)
-
-	inspect, err := c.cli.ExecInspect(ctx, response.ID, client.ExecInspectOptions{})
-	if err != nil {
-		return -1, out.String(), err
-	}
-
-	return inspect.ExitCode, out.String(), nil
+	return c.cli.Backup(ctx, c.containerName)
 }
 
 // Broadcast sends an in-game RCON broadcast, but only to a running, unpaused
@@ -579,7 +533,7 @@ func (c *Controller) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	_, err := c.cli.ContainerStart(ctx, c.containerName, client.ContainerStartOptions{})
+	err := c.cli.Start(ctx, c.containerName)
 	if err == nil {
 		c.invalidateStatusCache()
 	}
@@ -688,11 +642,7 @@ func (c *Controller) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	timeout := 10
-	stopOpts := client.ContainerStopOptions{
-		Timeout: &timeout,
-	}
-	_, err := c.cli.ContainerStop(ctx, c.containerName, stopOpts)
+	err := c.cli.Stop(ctx, c.containerName)
 	if err == nil {
 		c.invalidateStatusCache()
 	}

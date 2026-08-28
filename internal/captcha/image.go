@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	mathrand "math/rand"
 	"strconv"
 )
 
@@ -54,8 +53,8 @@ func RenderNumberPNG(n int) ([]byte, error) {
 
 	// Sprinkle noise so the image is not trivially OCR-able.
 	for i := 0; i < w*h/40; i++ {
-		g := uint8(120 + mathrand.Intn(100)) // #nosec G115
-		img.SetRGBA(mathrand.Intn(w), mathrand.Intn(h), color.RGBA{R: g, G: g, B: g, A: 255})
+		g := uint8(120 + secureIntn(100)) // #nosec G115 -- value is bounded to 120..219.
+		img.SetRGBA(secureIntn(w), secureIntn(h), color.RGBA{R: g, G: g, B: g, A: 255})
 	}
 
 	ink := color.RGBA{R: 35, G: 42, B: 66, A: 255}
@@ -65,7 +64,7 @@ func RenderNumberPNG(n int) ([]byte, error) {
 			continue
 		}
 		ox := imgPadding + di*(digitW+gap)
-		oy := imgPadding + mathrand.Intn(glyphScale)
+		oy := imgPadding + secureIntn(glyphScale)
 		for row := 0; row < glyphHeight; row++ {
 			for col := 0; col < glyphWidth; col++ {
 				if glyph[row][col] != '1' {

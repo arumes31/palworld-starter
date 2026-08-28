@@ -338,7 +338,7 @@ func TestSEOEndpoints(t *testing.T) {
 	rrMeta := httptest.NewRecorder()
 	srv.handleIndex(rrMeta, reqMeta)
 	metaHTML := rrMeta.Body.String()
-	
+
 	for _, tag := range []string{
 		`<meta name="google-site-verification" content="g-verify-123">`,
 		`<meta name="msvalidate.01" content="b-verify-456">`,
@@ -384,7 +384,7 @@ func TestPolicyEndpoints(t *testing.T) {
 		for _, lang := range []string{"de", "en"} {
 			req := httptest.NewRequest("GET", path+"?lang="+lang, nil)
 			rr := httptest.NewRecorder()
-			
+
 			if path == "/terms" {
 				srv.handleTerms(rr, req)
 			} else {

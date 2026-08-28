@@ -1,21 +1,55 @@
 services:
+  docker-broker:
+    image: ghcr.io/arumes31/palworld-starter:latest
+    command: ["./docker-broker"]
+    restart: unless-stopped
+    environment:
+      BROKER_TOKEN: ${BROKER_TOKEN:?set a random token of at least 32 characters}
+      BROKER_ALLOWED_CONTAINERS: ${PALWORLD_CONTAINERS:-palworld-server}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    group_add:
+      - ${DOCKER_GID:-999}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8081/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks: [control]
+
   palworld-starter:
     image: ghcr.io/arumes31/palworld-starter:latest
-    container_name: palworld-starter
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
-      # Mount Docker socket so the app can manage Palworld containers
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Mount data directory so the remaining time state survives restarts
       - ./data:/data
     environment:
-      - STATE_DIR=/data
-      - DOCKER_CONTAINER_NAME=palworld-server
-      # For multiple servers, uncomment and adjust:
-      # - SERVERS=pal1,pal2
-      # - SERVER_PAL1_NAME=Alpha Nexus
-      # - SERVER_PAL1_CONTAINER=palworld-server-1
-      # - SERVER_PAL2_NAME=Beta Hub
-      # - SERVER_PAL2_CONTAINER=palworld-server-2
+      STATE_DIR: /data
+      DOCKER_CONTAINER_NAME: palworld-server
+      REST_API_HOST: palworld-server
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set the Palworld REST API password}
+      BROKER_URL: http://docker-broker:8081
+      BROKER_TOKEN: ${BROKER_TOKEN:?set a random token of at least 32 characters}
+    depends_on:
+      docker-broker:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [default, control]
+
+networks:
+  control:
+    internal: true

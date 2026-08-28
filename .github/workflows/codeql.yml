@@ -6,35 +6,36 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: '30 1 * * 0'
+    - cron: "30 1 * * 0"
+
+permissions:
+  contents: read
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze Go and Actions
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: read
       security-events: write
-
     strategy:
       fail-fast: false
       matrix:
-        language: ['go']
-
+        language: [go, actions]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
       - name: Set up Go
-        uses: actions/setup-go@v7
+        if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.5'
-
+          go-version: 1.26.6
+          cache: true
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.31.10
         with:
           languages: ${{ matrix.language }}
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+      - name: Analyze
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.31.10

@@ -9,11 +9,23 @@
 package captcha
 
 import (
+	cryptorand "crypto/rand"
 	"fmt"
-	mathrand "math/rand"
+	"math/big"
 	"regexp"
 	"strings"
 )
+
+func secureIntn(max int) int {
+	if max <= 0 {
+		panic("secureIntn called with a non-positive bound")
+	}
+	value, err := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		panic(fmt.Sprintf("secure random source unavailable: %v", err))
+	}
+	return int(value.Int64())
+}
 
 // Challenge is one generated puzzle. Question contains the {N1} and {N2}
 // placeholders where the numbers belong. Answer depends on what the closing
@@ -554,9 +566,9 @@ func insertMiddles(story string, middles []string, actorPhrase, setting string) 
 		return story
 	}
 
-	count := 1 + mathrand.Intn(2)
+	count := 1 + secureIntn(2)
 	picked := make([]string, 0, count)
-	first := mathrand.Intn(len(middles))
+	first := secureIntn(len(middles))
 	usedActor := false
 	for i := 0; len(picked) < count && i < len(middles); i++ {
 		m := middles[(first+i)%len(middles)]
@@ -623,22 +635,22 @@ func Generate(lang string) Challenge {
 		packs = packsDe
 	}
 	packIdx := 0
-	if mathrand.Intn(4) == 0 {
+	if secureIntn(4) == 0 {
 		packIdx = 1
 	}
 	pack := packs[packIdx]
 
-	themeIdx := mathrand.Intn(len(pack.Themes))
+	themeIdx := secureIntn(len(pack.Themes))
 	t := pack.Themes[themeIdx]
 	actor := actorPhrase(t, lang)
-	intro := fmt.Sprintf(pack.Intros[mathrand.Intn(len(pack.Intros))], actor, t.Setting)
+	intro := fmt.Sprintf(pack.Intros[secureIntn(len(pack.Intros))], actor, t.Setting)
 
 	op := "+"
-	if mathrand.Intn(2) == 0 {
+	if secureIntn(2) == 0 {
 		op = "-"
 	}
-	num1 := mathrand.Intn(100) + 100 // 100 to 199
-	num2 := mathrand.Intn(98) + 2    // 2 to 99: never 0 (must render as an image), never 1 (all stories are worded in plural)
+	num1 := secureIntn(100) + 100 // 100 to 199
+	num2 := secureIntn(98) + 2    // 2 to 99: never 0 (must render as an image), never 1 (all stories are worded in plural)
 
 	// The numbers are delivered as scratch-off images, so the question text
 	// only carries placeholders.
@@ -646,7 +658,7 @@ func Generate(lang string) Challenge {
 	if op == "-" {
 		tmpls = pack.Sub
 	}
-	tmplIdx := mathrand.Intn(len(tmpls))
+	tmplIdx := secureIntn(len(tmpls))
 	st := tmpls[tmplIdx]
 
 	firstItem := t.Item
@@ -665,7 +677,7 @@ func Generate(lang string) Challenge {
 	// This keeps the required arithmetic unpredictable for bots.
 	var answer int
 	var questionForms []string
-	switch mathrand.Intn(4) {
+	switch secureIntn(4) {
 	case 0: // change (num2)
 		answer = num2
 		switch {
@@ -701,7 +713,7 @@ func Generate(lang string) Challenge {
 			questionForms = questionsResultSubEn
 		}
 	}
-	form := questionForms[mathrand.Intn(len(questionForms))]
+	form := questionForms[secureIntn(len(questionForms))]
 	question := base + " " + fmt.Sprintf(form, t.Item)
 
 	if t.Gender == "f" {

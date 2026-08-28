@@ -39,6 +39,8 @@ temp/
 dist/
 build/
 target/
+tmp_build
+patch_*.js
 
 # Local environment files
 .env.local
