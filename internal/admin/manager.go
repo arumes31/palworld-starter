@@ -115,7 +115,10 @@ type Manager struct {
 	order    []string
 	active   map[string]*activeReboot
 	globalPw string // global admin password (raw, from env); empty disables the GUI
-	syncDir  func(string) error
+	// globalVerifier is a PBKDF2 digest of globalPw that session revisions are
+	// derived from, so the raw password never feeds a fast hash.
+	globalVerifier string
+	syncDir        func(string) error
 
 	persistRetryAt      time.Time
 	persistRetryBackoff time.Duration
@@ -146,6 +149,11 @@ func NewManager(path string, servers []ServerRef, globalPassword string, seeds m
 	m.cfg = load(path)
 	if m.cfg.ServerAuth == nil {
 		m.cfg.ServerAuth = make(map[string]*serverAuth)
+	}
+	if globalPassword != "" {
+		// Fixed salt: the verifier must be stable across restarts so sessions
+		// survive them (with SESSION_KEY); it never leaves the process.
+		m.globalVerifier = pbkdf2Hash([]byte("palworld-starter/admin-global"), globalPassword, pbkdf2Iterations)
 	}
 	if globalPassword != "" && len(globalPassword) < MinPasswordLength {
 		log.Printf("admin: WARNING ADMIN_GUI_PASSWORD is shorter than %d characters; use a longer password", MinPasswordLength)
@@ -212,7 +220,7 @@ func (m *Manager) Authenticate(password string) (scope, revision string, ok bool
 		return "", "", false
 	}
 	if subtle.ConstantTimeCompare([]byte(password), []byte(m.globalPw)) == 1 {
-		return ScopeAll, credentialRevision(ScopeAll, m.globalPw), true
+		return ScopeAll, credentialRevision(ScopeAll, m.globalVerifier), true
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -238,7 +246,7 @@ func (m *Manager) ValidateSession(scope, revision string) bool {
 
 	want := ""
 	if scope == ScopeAll {
-		want = credentialRevision(ScopeAll, m.globalPw)
+		want = credentialRevision(ScopeAll, m.globalVerifier)
 	} else {
 		m.mu.Lock()
 		a := m.cfg.ServerAuth[scope]
