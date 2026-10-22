@@ -40,6 +40,10 @@ type Controller struct {
 	statusCache string
 	statusTime  time.Time
 
+	pausedMu    sync.Mutex
+	pausedCache bool
+	pausedTime  time.Time
+
 	passwordMu      sync.Mutex
 	adminPassword   string
 	passwordFromEnv bool
@@ -53,15 +57,21 @@ type Controller struct {
 	metricsCache ServerMetrics
 	metricsTime  time.Time
 
-	infoMu    sync.Mutex
-	infoCache ServerInfo
-	infoTime  time.Time
+	infoMu      sync.Mutex
+	infoCache   ServerInfo
+	infoTime    time.Time
+	infoAttempt time.Time
 
-	settingsMu    sync.Mutex
-	settingsCache ServerSettings
-	settingsKnown bool
-	settingsTime  time.Time
+	settingsMu      sync.Mutex
+	settingsCache   ServerSettings
+	settingsKnown   bool
+	settingsTime    time.Time
+	settingsAttempt time.Time
 }
+
+// refreshRetry is the minimum gap between REST refresh attempts while the
+// value is still unknown, so page views cannot trigger a Docker log read each.
+const refreshRetry = 30 * time.Second
 
 // NewController creates a controller for the named container whose Palworld
 // REST API listens on the given host and port. adminPassword authenticates
@@ -158,9 +168,28 @@ func (c *Controller) CachedStatus() string {
 
 func (c *Controller) invalidateStatusCache() {
 	c.statusMu.Lock()
-	defer c.statusMu.Unlock()
 	c.statusCache = ""
 	c.statusTime = time.Time{}
+	c.statusMu.Unlock()
+
+	c.pausedMu.Lock()
+	c.pausedTime = time.Time{}
+	c.pausedMu.Unlock()
+}
+
+// CachedPaused returns IsPaused cached for 15 seconds. It is meant for
+// display only (e.g. the public status page); paths that gate REST or exec
+// calls on the pause state keep using the fresh IsPaused.
+func (c *Controller) CachedPaused() bool {
+	c.pausedMu.Lock()
+	defer c.pausedMu.Unlock()
+
+	if time.Since(c.pausedTime) < 15*time.Second {
+		return c.pausedCache
+	}
+	c.pausedCache = c.IsPaused()
+	c.pausedTime = time.Now()
+	return c.pausedCache
 }
 
 // IsPaused inspects recent container logs for the auto-pause marker. It scans
@@ -322,6 +351,10 @@ func (c *Controller) Info() ServerInfo {
 	if time.Since(c.infoTime) < 10*time.Minute && c.infoCache.Version != "" {
 		return c.infoCache
 	}
+	if time.Since(c.infoAttempt) < refreshRetry {
+		return c.infoCache
+	}
+	c.infoAttempt = time.Now()
 
 	if c.CachedStatus() == "running" && !c.IsPaused() {
 		if info, ok := c.fetchInfo(); ok {
@@ -408,7 +441,9 @@ func (c *Controller) GameMode() string {
 	c.settingsMu.Lock()
 	defer c.settingsMu.Unlock()
 
-	if !c.settingsKnown || time.Since(c.settingsTime) >= 10*time.Minute {
+	if (!c.settingsKnown || time.Since(c.settingsTime) >= 10*time.Minute) &&
+		time.Since(c.settingsAttempt) >= refreshRetry {
+		c.settingsAttempt = time.Now()
 		if c.CachedStatus() == "running" && !c.IsPaused() {
 			if s, ok := c.fetchSettings(); ok {
 				c.settingsCache = s

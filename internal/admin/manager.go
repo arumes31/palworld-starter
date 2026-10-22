@@ -15,6 +15,7 @@ package admin
 
 import (
 	"context"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -39,6 +40,20 @@ const ScopeAll = "*"
 // DefaultLeadSeconds is the default reboot announcement lead time (10 minutes).
 const DefaultLeadSeconds = 600
 
+// MinPasswordLength is the minimum length of admin-GUI passwords. New
+// per-server passwords shorter than this are rejected; shorter passwords from
+// the environment still work but log a warning at startup.
+const MinPasswordLength = 12
+
+// pbkdf2Iterations is the PBKDF2-HMAC-SHA256 work factor for new per-server
+// password hashes (OWASP recommendation). Stored hashes record their own
+// iteration count, so raising it later keeps old hashes verifiable.
+var pbkdf2Iterations = 600_000
+
+// hashAlgoPBKDF2 marks a serverAuth hashed with PBKDF2-HMAC-SHA256. An empty
+// algo is the legacy single salted SHA-256, upgraded on the next login.
+const hashAlgoPBKDF2 = "pbkdf2-sha256"
+
 // JobType is the recurrence kind of a reboot job.
 type JobType string
 
@@ -60,10 +75,12 @@ type RebootJob struct {
 	LastFired   int64   `json:"last_fired"` // unix target this job last fired for (dedupe)
 }
 
-// serverAuth is a salted SHA-256 hash of a per-server admin password.
+// serverAuth is a salted hash of a per-server admin password.
 type serverAuth struct {
 	Salt string `json:"salt"`
 	Hash string `json:"hash"`
+	Algo string `json:"algo,omitempty"` // "" = legacy SHA-256, else hashAlgoPBKDF2
+	Iter int    `json:"iter,omitempty"`
 }
 
 // configFile is the on-disk shape of the admin state.
@@ -130,6 +147,9 @@ func NewManager(path string, servers []ServerRef, globalPassword string, seeds m
 	if m.cfg.ServerAuth == nil {
 		m.cfg.ServerAuth = make(map[string]*serverAuth)
 	}
+	if globalPassword != "" && len(globalPassword) < MinPasswordLength {
+		log.Printf("admin: WARNING ADMIN_GUI_PASSWORD is shorter than %d characters; use a longer password", MinPasswordLength)
+	}
 
 	// Seed per-server passwords from the environment for servers that have
 	// none stored yet, so a fresh deployment can ship them via env vars.
@@ -140,6 +160,9 @@ func NewManager(path string, servers []ServerRef, globalPassword string, seeds m
 		}
 		if _, ok := m.servers[id]; !ok {
 			continue
+		}
+		if len(pw) < MinPasswordLength {
+			log.Printf("admin: WARNING seeded admin-GUI password for server %q is shorter than %d characters", id, MinPasswordLength)
 		}
 		if _, ok := m.cfg.ServerAuth[id]; !ok {
 			m.cfg.ServerAuth[id] = hashPassword(pw)
@@ -196,6 +219,9 @@ func (m *Manager) Authenticate(password string) (scope, revision string, ok bool
 	// Iterate in configured order for deterministic behaviour.
 	for _, id := range m.order {
 		if a := m.cfg.ServerAuth[id]; a != nil && a.matches(password) {
+			if a.Algo == "" {
+				a = m.upgradeHashLocked(id, a, password)
+			}
 			return id, credentialRevision(id, a.Salt+":"+a.Hash), true
 		}
 	}
@@ -247,11 +273,28 @@ func (m *Manager) VisibleServers(scope string) []ServerRef {
 	return nil
 }
 
+// upgradeHashLocked re-hashes a legacy SHA-256 entry with PBKDF2 after a
+// successful login. On a persistence failure the legacy entry stays in place.
+// Callers must hold m.mu.
+func (m *Manager) upgradeHashLocked(id string, legacy *serverAuth, password string) *serverAuth {
+	upgraded := hashPassword(password)
+	m.cfg.ServerAuth[id] = upgraded
+	if err := m.saveRecoverably(); err != nil {
+		m.cfg.ServerAuth[id] = legacy
+		log.Printf("admin: could not persist upgraded password hash for %q: %v", id, err)
+		return legacy
+	}
+	return upgraded
+}
+
 // SetServerPassword sets (or, with an empty password, clears) the per-server
 // admin password. Only global admins should be allowed to call this.
 func (m *Manager) SetServerPassword(serverID, password string) error {
 	if _, ok := m.servers[serverID]; !ok {
 		return fmt.Errorf("unknown server %q", serverID)
+	}
+	if password != "" && len(password) < MinPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", MinPasswordLength)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -285,11 +328,23 @@ func hashPassword(password string) *serverAuth {
 	_, _ = rand.Read(salt)
 	return &serverAuth{
 		Salt: hex.EncodeToString(salt),
-		Hash: hashWithSalt(salt, password),
+		Hash: pbkdf2Hash(salt, password, pbkdf2Iterations),
+		Algo: hashAlgoPBKDF2,
+		Iter: pbkdf2Iterations,
 	}
 }
 
-func hashWithSalt(salt []byte, password string) string {
+func pbkdf2Hash(salt []byte, password string, iter int) string {
+	key, err := pbkdf2.Key(sha256.New, password, salt, iter, sha256.Size)
+	if err != nil {
+		return ""
+	}
+	return hex.EncodeToString(key)
+}
+
+// legacyHash is the pre-PBKDF2 single salted SHA-256, kept only to verify
+// (and then upgrade) hashes written by older versions.
+func legacyHash(salt []byte, password string) string {
 	h := sha256.New()
 	h.Write(salt)
 	h.Write([]byte(password))
@@ -309,7 +364,21 @@ func (a *serverAuth) matches(password string) bool {
 	if err != nil {
 		return false
 	}
-	want := hashWithSalt(salt, password)
+	var want string
+	switch a.Algo {
+	case "":
+		want = legacyHash(salt, password)
+	case hashAlgoPBKDF2:
+		if a.Iter <= 0 {
+			return false
+		}
+		want = pbkdf2Hash(salt, password, a.Iter)
+	default:
+		return false
+	}
+	if want == "" {
+		return false
+	}
 	return subtle.ConstantTimeCompare([]byte(want), []byte(a.Hash)) == 1
 }
 

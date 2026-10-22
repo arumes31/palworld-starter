@@ -53,11 +53,12 @@ func adminCookie(t *testing.T, mgr *admin.Manager, password, csrf string) *http.
 		t.Fatalf("authenticate test admin")
 	}
 	sd := &SessionData{
-		AdminScope:    scope,
-		AdminRevision: revision,
-		AdminExpires:  time.Now().Add(time.Hour).Unix(),
-		CsrfToken:     csrf,
-		Language:      "en",
+		AdminScope:     scope,
+		AdminRevision:  revision,
+		AdminExpires:   time.Now().Add(time.Hour).Unix(),
+		AdminSessionID: "test-session",
+		CsrfToken:      csrf,
+		Language:       "en",
 	}
 	b, _ := json.Marshal(sd)
 	enc, _ := encryptSession(b)
@@ -76,7 +77,7 @@ func TestAdminRoutesDisabledWithoutPassword(t *testing.T) {
 }
 
 func TestAdminDashboardRequiresLogin(t *testing.T) {
-	srv, _ := newAdminServer(t, "secret")
+	srv, _ := newAdminServer(t, "secret-long-enough")
 
 	rr := httptest.NewRecorder()
 	srv.handleAdminDashboard(rr, httptest.NewRequest("GET", "/admin", nil))
@@ -89,7 +90,7 @@ func TestAdminDashboardRequiresLogin(t *testing.T) {
 }
 
 func TestAdminLoginFlow(t *testing.T) {
-	srv, _ := newAdminServer(t, "secret")
+	srv, _ := newAdminServer(t, "secret-long-enough")
 
 	// GET login mints a CSRF token in the session cookie.
 	rrGet := httptest.NewRecorder()
@@ -118,7 +119,7 @@ func TestAdminLoginFlow(t *testing.T) {
 	}
 
 	// Correct password logs in with global scope.
-	form = url.Values{"csrf_token": {sd.CsrfToken}, "password": {"secret"}}
+	form = url.Values{"csrf_token": {sd.CsrfToken}, "password": {"secret-long-enough"}}
 	rrOk := httptest.NewRecorder()
 	reqOk := httptest.NewRequest("POST", "/admin/login", strings.NewReader(form.Encode()))
 	reqOk.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -135,7 +136,7 @@ func TestAdminLoginFlow(t *testing.T) {
 
 func TestAdminSessionRevokedWhenServerPasswordChanges(t *testing.T) {
 	srv, _ := newAdminServer(t, "global-secret")
-	if err := srv.admin.SetServerPassword("alpha", "old-secret"); err != nil {
+	if err := srv.admin.SetServerPassword("alpha", "old-secret-long-enough"); err != nil {
 		t.Fatalf("set initial server password: %v", err)
 	}
 
@@ -149,7 +150,7 @@ func TestAdminSessionRevokedWhenServerPasswordChanges(t *testing.T) {
 
 	form := url.Values{
 		"csrf_token": {sd.CsrfToken},
-		"password":   {"old-secret"},
+		"password":   {"old-secret-long-enough"},
 	}
 	rrLogin := httptest.NewRecorder()
 	reqLogin := httptest.NewRequest(
@@ -162,7 +163,7 @@ func TestAdminSessionRevokedWhenServerPasswordChanges(t *testing.T) {
 	srv.handleAdminLogin(rrLogin, reqLogin)
 	adminCookie := rrLogin.Result().Cookies()[0]
 
-	if err := srv.admin.SetServerPassword("alpha", "new-secret"); err != nil {
+	if err := srv.admin.SetServerPassword("alpha", "new-secret-long-enough"); err != nil {
 		t.Fatalf("change server password: %v", err)
 	}
 
@@ -176,12 +177,12 @@ func TestAdminSessionRevokedWhenServerPasswordChanges(t *testing.T) {
 }
 
 func TestAdminActionScopeEnforced(t *testing.T) {
-	srv, _ := newAdminServer(t, "secret")
-	if err := srv.admin.SetServerPassword("alpha", "alpha-secret"); err != nil {
+	srv, _ := newAdminServer(t, "secret-long-enough")
+	if err := srv.admin.SetServerPassword("alpha", "alpha-secret-long-enough"); err != nil {
 		t.Fatalf("set server password: %v", err)
 	}
 	csrf := "tok123"
-	cookie := adminCookie(t, srv.admin, "alpha-secret", csrf)
+	cookie := adminCookie(t, srv.admin, "alpha-secret-long-enough", csrf)
 
 	// Acting on beta from an alpha session is forbidden.
 	form := url.Values{"csrf_token": {csrf}, "srv": {"beta"}, "action": {"save"}}
@@ -211,7 +212,7 @@ func TestAdminActionScopeEnforced(t *testing.T) {
 }
 
 func TestAdminActionRequiresAuthAndCsrf(t *testing.T) {
-	srv, _ := newAdminServer(t, "secret")
+	srv, _ := newAdminServer(t, "secret-long-enough")
 
 	// No session: unauthorized.
 	rr := httptest.NewRecorder()
@@ -223,7 +224,7 @@ func TestAdminActionRequiresAuthAndCsrf(t *testing.T) {
 	}
 
 	// Authenticated but wrong CSRF token: forbidden.
-	cookie := adminCookie(t, srv.admin, "secret", "realtoken")
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", "realtoken")
 	form := url.Values{"csrf_token": {"wrong"}, "srv": {"alpha"}, "action": {"save"}}
 	rr = httptest.NewRecorder()
 	req = httptest.NewRequest("POST", "/admin/action", strings.NewReader(form.Encode()))
@@ -236,9 +237,9 @@ func TestAdminActionRequiresAuthAndCsrf(t *testing.T) {
 }
 
 func TestAdminScheduleAddAndList(t *testing.T) {
-	srv, _ := newAdminServer(t, "secret")
+	srv, _ := newAdminServer(t, "secret-long-enough")
 	csrf := "tok"
-	cookie := adminCookie(t, srv.admin, "secret", csrf)
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", csrf)
 
 	form := url.Values{
 		"csrf_token": {csrf}, "srv": {"alpha"}, "op": {"add"},
@@ -284,11 +285,11 @@ func TestPublicPlayersIncludesRebootFields(t *testing.T) {
 }
 
 func TestAdminPlayersScoped(t *testing.T) {
-	srv, _ := newAdminServer(t, "secret")
-	if err := srv.admin.SetServerPassword("alpha", "alpha-secret"); err != nil {
+	srv, _ := newAdminServer(t, "secret-long-enough")
+	if err := srv.admin.SetServerPassword("alpha", "alpha-secret-long-enough"); err != nil {
 		t.Fatalf("set server password: %v", err)
 	}
-	cookie := adminCookie(t, srv.admin, "alpha-secret", "tok")
+	cookie := adminCookie(t, srv.admin, "alpha-secret-long-enough", "tok")
 
 	// Cross-server read is forbidden.
 	rr := httptest.NewRecorder()
