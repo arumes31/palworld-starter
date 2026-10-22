@@ -230,7 +230,7 @@ func (m *Manager) Authenticate(password string) (scope, revision string, ok bool
 			if a.Algo == "" {
 				a = m.upgradeHashLocked(id, a, password)
 			}
-			return id, credentialRevision(id, a.Salt+":"+a.Hash), true
+			return id, credentialRevision(id, a.Salt), true
 		}
 	}
 	return "", "", false
@@ -252,7 +252,7 @@ func (m *Manager) ValidateSession(scope, revision string) bool {
 		a := m.cfg.ServerAuth[scope]
 		_, serverExists := m.servers[scope]
 		if a != nil && serverExists {
-			want = credentialRevision(scope, a.Salt+":"+a.Hash)
+			want = credentialRevision(scope, a.Salt)
 		}
 		m.mu.Unlock()
 	}
@@ -359,12 +359,12 @@ func legacyHash(salt []byte, password string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// credentialRevision binds a session to the credential it was issued for.
+// For per-server passwords the verifier is the hash salt, which is freshly
+// random on every password change; for the global password it is the PBKDF2
+// verifier. Neither is the password itself.
 func credentialRevision(scope, verifier string) string {
-	h := sha256.New()
-	h.Write([]byte(scope))
-	h.Write([]byte{0})
-	h.Write([]byte(verifier))
-	return hex.EncodeToString(h.Sum(nil))
+	return scope + ":" + verifier
 }
 
 func (a *serverAuth) matches(password string) bool {
