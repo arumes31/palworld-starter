@@ -21,3 +21,6 @@ data/
 .DS_Store
 .vscode/
 .idea/
+
+# Local build output (binaries are published via the release workflow)
+tmp_build

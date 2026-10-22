@@ -1,17 +1,62 @@
 services:
+  # The app reaches Docker only through this proxy, which allows just the API
+  # calls it needs (inspect/logs/start/stop/exec on containers). Mounting the
+  # raw socket into the internet-facing app would equal root on the host.
+  docker-socket-proxy:
+    image: wollomatic/socket-proxy:1.13.1@sha256:3935b709275e4ec35d6ed5a5c4a1f0d01ed31eec5e7234efc3357ecd47689002
+    container_name: palworld-docker-proxy
+    restart: unless-stopped
+    # Group must be the docker group on the host: `getent group docker | cut -d: -f3`
+    user: "65534:${DOCKER_GID:?set DOCKER_GID to the docker group id of the host}"
+    read_only: true
+    mem_limit: 64M
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - '-loglevel=info'
+      - '-listenip=0.0.0.0'
+      - '-allowfrom=palworld-starter'
+      - '-allowHEAD=(/v1\..{1,2})?/_ping'
+      - '-allowGET=(/v1\..{1,2})?/(_ping|version|containers/[^/]+/(json|logs)|exec/[^/]+/json)'
+      - '-allowPOST=/v1\..{1,2}/(containers/[^/]+/(start|stop|exec)|exec/[^/]+/(start|resize))'
+      - '-watchdoginterval=3600'
+      - '-stoponwatchdog'
+      - '-shutdowngracetime=5'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-proxy
+
   palworld-starter:
+    # Pin a specific build (e.g. :sha-<commit> or @sha256:<digest>) in production
+    # instead of following :latest.
     image: ghcr.io/arumes31/palworld-starter:latest
     container_name: palworld-starter
     restart: unless-stopped
+    depends_on:
+      - docker-socket-proxy
+    # Unprivileged user from the image; ./data must be writable by it:
+    #   sudo chown -R 10001:10001 ./data
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     ports:
+      # Put a TLS reverse proxy in front for public access; the admin GUI
+      # must never be used over plain HTTP.
       - "5000:5000"
     volumes:
-      # Mount Docker socket so the app can manage Palworld containers
-      - /var/run/docker.sock:/var/run/docker.sock
       # Mount data directory so the remaining time state survives restarts
       - ./data:/data
     environment:
       - STATE_DIR=/data
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
       - DOCKER_CONTAINER_NAME=palworld-server
       # For multiple servers, uncomment and adjust:
       # - SERVERS=pal1,pal2
@@ -19,3 +64,10 @@ services:
       # - SERVER_PAL1_CONTAINER=palworld-server-1
       # - SERVER_PAL2_NAME=Beta Hub
       # - SERVER_PAL2_CONTAINER=palworld-server-2
+    networks:
+      - default
+      - docker-proxy
+
+networks:
+  docker-proxy:
+    internal: true
