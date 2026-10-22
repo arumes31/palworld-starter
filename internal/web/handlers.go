@@ -5,9 +5,7 @@
 package web
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -16,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +29,10 @@ import (
 // BootEstimateSeconds is the typical time the Palworld server needs from
 // container start until its REST API answers (i.e. the server is joinable).
 const BootEstimateSeconds = 90
+
+// maxTimeRemaining caps the server timer at 48 hours, the same limit the
+// player-activity ticker uses, so captcha solves cannot push it out forever.
+const maxTimeRemaining = 48 * 3600
 
 // Instance is one managed Palworld server.
 type Instance struct {
@@ -48,6 +51,13 @@ type Server struct {
 	templates map[string]*template.Template
 	stopToken string
 	admin     *admin.Manager
+
+	trustProxy   bool // honour X-Forwarded-For for client IPs
+	captchas     *captchaStore
+	captchaFails *failureLimiter // wrong captcha answers per client IP
+	loginFails   *failureLimiter // failed admin logins per client IP
+	loginGlobal  *failureLimiter // failed admin logins across all clients
+	revoked      *revocationList // logged-out admin sessions
 }
 
 // New creates the web server for the given server instances (at least one).
@@ -66,6 +76,13 @@ func New(instances []*Instance, templateDir, staticDir string, adm *admin.Manage
 		templates: parseTemplates(templateDir),
 		stopToken: os.Getenv("STOP_TOKEN"),
 		admin:     adm,
+
+		trustProxy:   strings.EqualFold(os.Getenv("TRUST_PROXY_HEADERS"), "true"),
+		captchas:     newCaptchaStore(),
+		captchaFails: newFailureLimiter(10, 30*time.Second, 15*time.Minute, time.Hour),
+		loginFails:   newFailureLimiter(5, time.Minute, time.Hour, 24*time.Hour),
+		loginGlobal:  newFailureLimiter(50, time.Minute, 15*time.Minute, 15*time.Minute),
+		revoked:      &revocationList{ids: make(map[string]int64)},
 	}
 }
 
@@ -132,8 +149,9 @@ func (s *Server) resolveInstance(r *http.Request) *Instance {
 	return s.byID[id]
 }
 
-// Routes returns the HTTP mux with all handlers registered.
-func (s *Server) Routes() *http.ServeMux {
+// Routes returns the HTTP handler with all routes registered and the
+// security headers applied to every response.
+func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/captcha", s.handleCaptchaPage(false))
@@ -154,7 +172,7 @@ func (s *Server) Routes() *http.ServeMux {
 
 	fileServer := http.FileServer(http.Dir(s.staticDir))
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
-	return mux
+	return securityHeaders(mux)
 }
 
 // ServerPanel is the per-server view model for the index page. Status adds a
@@ -212,7 +230,22 @@ func sanitizeHost(h string) string {
 	}, h)
 }
 
+// allowedHosts parses ALLOWED_HOSTS, a comma-separated list of hostnames the
+// site may be reached under.
+func allowedHosts() []string {
+	var hosts []string
+	for _, h := range strings.Split(os.Getenv("ALLOWED_HOSTS"), ",") {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
 // siteURL returns the public website base URL, always with a trailing slash.
+// WEBSITE_URL wins; otherwise the request host is used, restricted to
+// ALLOWED_HOSTS when that is set so a forged Host header cannot end up in
+// canonical links or the sitemap.
 func (s *Server) siteURL(r *http.Request) string {
 	if u := os.Getenv("WEBSITE_URL"); u != "" {
 		if !strings.HasSuffix(u, "/") {
@@ -234,6 +267,9 @@ func (s *Server) siteURL(r *http.Request) string {
 	host := sanitizeHost(r.Host)
 	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
 		host = sanitizeHost(xfh)
+	}
+	if allowed := allowedHosts(); len(allowed) > 0 && !slices.Contains(allowed, strings.ToLower(host)) {
+		host = allowed[0]
 	}
 	return scheme + "://" + host + "/"
 }
@@ -292,7 +328,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Honor the footer language toggle and remember the choice.
 	if lang := r.URL.Query().Get("lang"); lang == "de" || lang == "en" {
 		sessionData.Language = lang
-		saveSession(w, sessionData)
+		saveSession(w, r, sessionData)
 	}
 
 	panels := make([]ServerPanel, 0, len(s.instances))
@@ -300,7 +336,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		status := inst.Game.CachedStatus()
 		// Booting: container up, but the game is not joinable yet. Auto-paused
 		// servers stay "running" - they wake on the first join attempt.
-		if status == "running" && !inst.Game.IsPaused() && !inst.Game.RestAPIUp() {
+		if status == "running" && !inst.Game.CachedPaused() && !inst.Game.RestAPIUp() {
 			status = "starting"
 		}
 		rebootTarget, rebootActive := s.rebootStatus(inst.ID)
@@ -351,18 +387,18 @@ func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 			ch = captcha.Generate(lang)
 		}
 		sessionData.LastCaptcha = ch.Fingerprint
-		sessionData.CaptchaAnswer = ch.Answer
-		sessionData.CaptchaNum1 = ch.Num1
-		sessionData.CaptchaNum2 = ch.Num2
-		sessionData.CaptchaServer = inst.ID
+		// Drop the visitor's previous challenge; only the newest is valid.
+		s.captchas.take(sessionData.CaptchaID)
+		sessionData.CaptchaID = s.captchas.issue(pendingCaptcha{
+			answer: ch.Answer,
+			num1:   ch.Num1,
+			num2:   ch.Num2,
+			server: inst.ID,
+		})
 
 		// Ensure CSRF token exists
-		if sessionData.CsrfToken == "" {
-			tokenBytes := make([]byte, 16)
-			_, _ = rand.Read(tokenBytes)
-			sessionData.CsrfToken = hex.EncodeToString(tokenBytes)
-		}
-		saveSession(w, sessionData)
+		ensureCsrf(sessionData)
+		saveSession(w, r, sessionData)
 
 		discordUrl := discord.InviteURL()
 		tmplName := "captcha.html"
@@ -385,13 +421,14 @@ func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 // (?i=1 or ?i=2). The visitor scratches a canvas overlay free to read them.
 func (s *Server) handleCaptchaImage(w http.ResponseWriter, r *http.Request) {
 	sessionData := getSession(r)
+	pending, _ := s.captchas.peek(sessionData.CaptchaID)
 
 	var n int
 	switch r.URL.Query().Get("i") {
 	case "1":
-		n = sessionData.CaptchaNum1
+		n = pending.num1
 	case "2":
-		n = sessionData.CaptchaNum2
+		n = pending.num2
 	}
 	if n <= 0 {
 		http.NotFound(w, r)
@@ -429,19 +466,32 @@ func (s *Server) handleCaptchaError(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// captchaInstance returns the server the visitor's captcha was issued for.
-func (s *Server) captchaInstance(sessionData *SessionData) *Instance {
-	if inst, ok := s.byID[sessionData.CaptchaServer]; ok {
-		return inst
+// verifyCaptcha consumes the visitor's pending captcha and checks the
+// submitted answer. It returns the server the captcha was issued for (the
+// first server when the challenge is unknown) and whether the answer was
+// correct. Wrong answers count against the client IP; once locked out, even a
+// correct answer is refused until the lockout expires.
+func (s *Server) verifyCaptcha(r *http.Request, sessionData *SessionData) (*Instance, bool) {
+	pending, found := s.captchas.take(sessionData.CaptchaID)
+	sessionData.CaptchaID = ""
+	inst := s.instances[0]
+	if found {
+		if i, ok := s.byID[pending.server]; ok {
+			inst = i
+		}
 	}
-	return s.instances[0]
-}
 
-// clearCaptcha invalidates the solved captcha so it cannot be replayed.
-func clearCaptcha(sessionData *SessionData) {
-	sessionData.CaptchaAnswer = -9999
-	sessionData.CaptchaNum1 = 0
-	sessionData.CaptchaNum2 = 0
+	ip := s.clientIP(r)
+	now := time.Now()
+	if s.captchaFails.blocked(ip, now) > 0 {
+		return inst, false
+	}
+	ans, err := strconv.Atoi(r.FormValue("captcha_answer"))
+	if !found || err != nil || ans != pending.answer {
+		s.captchaFails.fail(ip, now)
+		return inst, false
+	}
+	return inst, true
 }
 
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -457,17 +507,13 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst := s.captchaInstance(sessionData)
-
-	ansStr := r.FormValue("captcha_answer")
-	ans, err := strconv.Atoi(ansStr)
-	if err != nil || ans != sessionData.CaptchaAnswer {
+	inst, ok := s.verifyCaptcha(r, sessionData)
+	// The challenge is consumed either way; persist that before redirecting.
+	saveSession(w, r, sessionData)
+	if !ok {
 		http.Redirect(w, r, "/captcha_error?origin=start_container&srv="+inst.ID, http.StatusSeeOther)
 		return
 	}
-
-	clearCaptcha(sessionData)
-	saveSession(w, sessionData)
 
 	// Start container if not running
 	status := inst.Game.Status()
@@ -486,7 +532,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 				if val < 900 {
 					val = 900
 				}
-				return val + 43200
+				return min(val+43200, maxTimeRemaining)
 			})
 			log.Printf("Server %s started + 12 hours added", inst.ID)
 			// Show boot progress until the game's REST API is reachable.
@@ -496,6 +542,12 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// extendTime adds 12 hours to the timer, capped at maxTimeRemaining. A timer
+// already above the cap (e.g. set by an admin) is never shortened.
+func extendTime(current int) int {
+	return max(current, min(current+43200, maxTimeRemaining))
 }
 
 func (s *Server) handleAddTime(w http.ResponseWriter, r *http.Request) {
@@ -511,23 +563,17 @@ func (s *Server) handleAddTime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst := s.captchaInstance(sessionData)
-
-	ansStr := r.FormValue("captcha_answer")
-	ans, err := strconv.Atoi(ansStr)
-	if err != nil || ans != sessionData.CaptchaAnswer {
+	inst, ok := s.verifyCaptcha(r, sessionData)
+	// The challenge is consumed either way; persist that before redirecting.
+	saveSession(w, r, sessionData)
+	if !ok {
 		http.Redirect(w, r, "/captcha_error?origin=add_time&srv="+inst.ID, http.StatusSeeOther)
 		return
 	}
 
-	clearCaptcha(sessionData)
-	saveSession(w, sessionData)
-
 	status := inst.Game.Status()
 	if status == "running" {
-		remaining := inst.State.UpdateTimeRemaining(func(current int) int {
-			return current + 43200
-		})
+		remaining := inst.State.UpdateTimeRemaining(extendTime)
 		log.Printf("+12 hours added to %s, now %dh", inst.ID, remaining/3600)
 	}
 

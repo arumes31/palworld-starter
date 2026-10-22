@@ -1,8 +1,6 @@
 package web
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -74,8 +72,11 @@ func (s *Server) rebootStatus(serverID string) (targetUnix int64, active bool) {
 }
 
 // adminScope returns the caller's admin scope, or "" when not authenticated.
+// Sessions without a per-login id (issued before ids existed) or revoked by
+// logout are rejected.
 func (s *Server) adminScope(sd *SessionData) string {
 	if sd.AdminScope == "" || sd.AdminExpires <= time.Now().Unix() ||
+		sd.AdminSessionID == "" || s.revoked.revoked(sd.AdminSessionID) ||
 		!s.admin.ValidateSession(sd.AdminScope, sd.AdminRevision) {
 		return ""
 	}
@@ -85,9 +86,7 @@ func (s *Server) adminScope(sd *SessionData) string {
 // ensureCsrf makes sure the session carries a CSRF token, minting one if not.
 func ensureCsrf(sd *SessionData) {
 	if sd.CsrfToken == "" {
-		b := make([]byte, 16)
-		_, _ = rand.Read(b)
-		sd.CsrfToken = hex.EncodeToString(b)
+		sd.CsrfToken = randomToken(16)
 	}
 }
 
@@ -102,7 +101,7 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodGet {
 		ensureCsrf(sd)
-		saveSession(w, sd)
+		saveSession(w, r, sd)
 		s.renderTemplate(w, r, "admin_login.html", PageContext{
 			Language:   sd.Language,
 			CsrfToken:  sd.CsrfToken,
@@ -122,29 +121,45 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Failed logins lock out the client IP (and, as a backstop against
+	// distributed guessing, all clients) with exponential backoff.
+	ip := s.clientIP(r)
+	now := time.Now()
+	if wait := max(s.loginFails.blocked(ip, now), s.loginGlobal.blocked("*", now)); wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		http.Redirect(w, r, "/admin/login?err=locked", http.StatusSeeOther)
+		return
+	}
+
 	scope, revision, ok := s.admin.Authenticate(r.FormValue("password"))
 	if !ok {
-		// Slow down brute-force attempts without holding a lock or state.
-		time.Sleep(600 * time.Millisecond)
+		s.loginFails.fail(ip, now)
+		s.loginGlobal.fail("*", now)
+		log.Printf("admin: failed login from %s", ip)
 		http.Redirect(w, r, "/admin/login?err=invalid", http.StatusSeeOther)
 		return
 	}
+	s.loginFails.reset(ip)
 
 	sd.AdminScope = scope
 	sd.AdminRevision = revision
 	sd.AdminExpires = time.Now().Add(adminSessionTTL).Unix()
+	sd.AdminSessionID = randomToken(16)
 	ensureCsrf(sd)
-	saveSession(w, sd)
+	saveSession(w, r, sd)
 	log.Printf("admin: login for scope %q", scope)
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	sd := getSession(r)
+	// Revoke server-side too, so a copy of the cookie stops working.
+	s.revoked.revoke(sd.AdminSessionID, sd.AdminExpires)
 	sd.AdminScope = ""
 	sd.AdminRevision = ""
 	sd.AdminExpires = 0
-	saveSession(w, sd)
+	sd.AdminSessionID = ""
+	saveSession(w, r, sd)
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
 
@@ -156,7 +171,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ensureCsrf(sd)
-	saveSession(w, sd)
+	saveSession(w, r, sd)
 
 	jobsByServer := map[string][]adminJobView{}
 	now := time.Now()
@@ -176,7 +191,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	for _, ref := range s.admin.VisibleServers(scope) {
 		status := ref.Ctrl.CachedStatus()
 		joinable := ref.Ctrl.RestAPIUp()
-		if status == "running" && !ref.Ctrl.IsPaused() && !joinable {
+		if status == "running" && !ref.Ctrl.CachedPaused() && !joinable {
 			status = "starting"
 		}
 		target, active := s.admin.ActiveReboot(ref.ID)

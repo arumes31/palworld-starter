@@ -35,19 +35,20 @@ func init() {
 
 // SessionData is the encrypted per-visitor session stored in a cookie.
 type SessionData struct {
-	CaptchaAnswer int    `json:"captcha_answer"`
-	CaptchaNum1   int    `json:"captcha_num1"`
-	CaptchaNum2   int    `json:"captcha_num2"`
-	CaptchaServer string `json:"captcha_server"`
-	LastCaptcha   string `json:"last_captcha"`
-	Language      string `json:"language"`
-	CsrfToken     string `json:"csrf_token"`
+	// CaptchaID references the pending challenge in the server-side
+	// captchaStore; the answer itself never leaves the server.
+	CaptchaID   string `json:"captcha_id,omitempty"`
+	LastCaptcha string `json:"last_captcha"`
+	Language    string `json:"language"`
+	CsrfToken   string `json:"csrf_token"`
 
 	// Admin session. AdminScope is admin.ScopeAll ("*") for a global admin or
 	// a single server id for a per-server admin; empty when not logged in.
 	AdminScope    string `json:"admin_scope,omitempty"`
 	AdminRevision string `json:"admin_revision,omitempty"`
 	AdminExpires  int64  `json:"admin_expires,omitempty"` // unix; admin session validity
+	// AdminSessionID is a per-login nonce; logout revokes it server-side.
+	AdminSessionID string `json:"admin_session_id,omitempty"`
 }
 
 func getSession(r *http.Request) *SessionData {
@@ -68,7 +69,9 @@ func getSession(r *http.Request) *SessionData {
 	return &data
 }
 
-func saveSession(w http.ResponseWriter, data *SessionData) {
+// saveSession writes the session cookie. SameSite=Lax keeps it off
+// cross-site subrequests; Secure is set for TLS requests (see cookieSecure).
+func saveSession(w http.ResponseWriter, r *http.Request, data *SessionData) {
 	bytes, err := json.Marshal(data)
 	if err != nil {
 		return
@@ -83,6 +86,8 @@ func saveSession(w http.ResponseWriter, data *SessionData) {
 		Value:    encrypted,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   cookieSecure(r),
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 

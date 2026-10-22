@@ -103,14 +103,14 @@ func TestNextTargetOnce(t *testing.T) {
 
 func TestAuthenticateScopes(t *testing.T) {
 	m := newTestManager(t, "globalpw")
-	if err := m.SetServerPassword("alpha", "alphapw"); err != nil {
+	if err := m.SetServerPassword("alpha", "alphapw-long-enough"); err != nil {
 		t.Fatal(err)
 	}
 
 	if scope, revision, ok := m.Authenticate("globalpw"); !ok || scope != ScopeAll || revision == "" {
 		t.Errorf("global auth = (%q,%v), want (*,true)", scope, ok)
 	}
-	if scope, revision, ok := m.Authenticate("alphapw"); !ok || scope != "alpha" || revision == "" {
+	if scope, revision, ok := m.Authenticate("alphapw-long-enough"); !ok || scope != "alpha" || revision == "" {
 		t.Errorf("alpha auth = (%q,%v), want (alpha,true)", scope, ok)
 	}
 	if _, _, ok := m.Authenticate("wrong"); ok {
@@ -134,7 +134,7 @@ func TestAuthenticateScopes(t *testing.T) {
 
 func TestValidateSessionTracksCredentialChanges(t *testing.T) {
 	m := newTestManager(t, "globalpw")
-	if err := m.SetServerPassword("alpha", "alphapw"); err != nil {
+	if err := m.SetServerPassword("alpha", "alphapw-long-enough"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -142,19 +142,19 @@ func TestValidateSessionTracksCredentialChanges(t *testing.T) {
 	if !ok || !m.ValidateSession(ScopeAll, globalRevision) {
 		t.Fatal("fresh global session should be valid")
 	}
-	_, serverRevision, ok := m.Authenticate("alphapw")
+	_, serverRevision, ok := m.Authenticate("alphapw-long-enough")
 	if !ok || !m.ValidateSession("alpha", serverRevision) {
 		t.Fatal("fresh server session should be valid")
 	}
 
-	if err := m.SetServerPassword("alpha", "replacement"); err != nil {
+	if err := m.SetServerPassword("alpha", "replacement-long-enough"); err != nil {
 		t.Fatal(err)
 	}
 	if m.ValidateSession("alpha", serverRevision) {
 		t.Error("replaced server credential did not revoke its session")
 	}
 
-	changedGlobal := NewManager("", []ServerRef{{ID: "alpha"}}, "replacement", nil)
+	changedGlobal := NewManager("", []ServerRef{{ID: "alpha"}}, "replacement-long-enough", nil)
 	if changedGlobal.ValidateSession(ScopeAll, globalRevision) {
 		t.Error("changed global credential did not revoke its session")
 	}
@@ -168,8 +168,8 @@ func TestAuthenticateDisabledWhenNoGlobal(t *testing.T) {
 	if m.Enabled() {
 		t.Error("manager should be disabled without a global password")
 	}
-	_ = m.SetServerPassword("alpha", "alphapw")
-	if _, _, ok := m.Authenticate("alphapw"); ok {
+	_ = m.SetServerPassword("alpha", "alphapw-long-enough")
+	if _, _, ok := m.Authenticate("alphapw-long-enough"); ok {
 		t.Error("auth must be refused while the GUI is disabled")
 	}
 }
@@ -180,7 +180,7 @@ func TestPasswordPersistence(t *testing.T) {
 	refs := []ServerRef{{ID: "alpha"}}
 
 	m1 := NewManager(path, refs, "g", nil)
-	if err := m1.SetServerPassword("alpha", "secret"); err != nil {
+	if err := m1.SetServerPassword("alpha", "secret-long-enough"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,7 +189,7 @@ func TestPasswordPersistence(t *testing.T) {
 	if !m2.HasServerPassword("alpha") {
 		t.Fatal("password not persisted")
 	}
-	if scope, _, ok := m2.Authenticate("secret"); !ok || scope != "alpha" {
+	if scope, _, ok := m2.Authenticate("secret-long-enough"); !ok || scope != "alpha" {
 		t.Errorf("reloaded auth = (%q,%v)", scope, ok)
 	}
 
@@ -206,7 +206,7 @@ func TestAdminConfigPersistence(t *testing.T) {
 	refs := []ServerRef{{ID: "alpha"}}
 
 	m1 := NewManager(path, refs, "g", nil)
-	if err := m1.SetServerPassword("alpha", "secret"); err != nil {
+	if err := m1.SetServerPassword("alpha", "secret-long-enough"); err != nil {
 		t.Fatal(err)
 	}
 	job, err := m1.AddJob(&RebootJob{
@@ -220,7 +220,7 @@ func TestAdminConfigPersistence(t *testing.T) {
 	}
 
 	m2 := NewManager(path, refs, "g", nil)
-	if scope, _, ok := m2.Authenticate("secret"); !ok || scope != "alpha" {
+	if scope, _, ok := m2.Authenticate("secret-long-enough"); !ok || scope != "alpha" {
 		t.Fatalf("reloaded auth = (%q, %v), want (alpha, true)", scope, ok)
 	}
 	jobs := m2.Jobs(ScopeAll)
@@ -238,7 +238,7 @@ func TestCreateRollsBackWhenPersistenceFails(t *testing.T) {
 	t.Run("server password", func(t *testing.T) {
 		m := NewManager(filepath.Join(t.TempDir(), "admin.json"), refs, "g", nil)
 		m.path = t.TempDir()
-		if err := m.SetServerPassword("alpha", "secret"); err == nil {
+		if err := m.SetServerPassword("alpha", "secret-long-enough"); err == nil {
 			t.Fatal("SetServerPassword succeeded without persisting the password")
 		}
 		if m.HasServerPassword("alpha") {
@@ -268,18 +268,18 @@ func TestUpdateRollsBackWhenPersistenceFails(t *testing.T) {
 
 	t.Run("server password", func(t *testing.T) {
 		m := NewManager(filepath.Join(t.TempDir(), "admin.json"), refs, "g", nil)
-		if err := m.SetServerPassword("alpha", "secret"); err != nil {
+		if err := m.SetServerPassword("alpha", "secret-long-enough"); err != nil {
 			t.Fatal(err)
 		}
 		m.path = t.TempDir()
 
-		if err := m.SetServerPassword("alpha", "replacement"); err == nil {
+		if err := m.SetServerPassword("alpha", "replacement-long-enough"); err == nil {
 			t.Fatal("SetServerPassword succeeded without persisting the replacement")
 		}
-		if scope, _, ok := m.Authenticate("secret"); !ok || scope != "alpha" {
+		if scope, _, ok := m.Authenticate("secret-long-enough"); !ok || scope != "alpha" {
 			t.Fatal("failed password replacement discarded the previous credential")
 		}
-		if _, _, ok := m.Authenticate("replacement"); ok {
+		if _, _, ok := m.Authenticate("replacement-long-enough"); ok {
 			t.Fatal("failed password replacement remained active only in memory")
 		}
 	})
@@ -326,7 +326,7 @@ func TestDirectorySyncFailureRetainsVisibleMutationForRetry(t *testing.T) {
 		return nil
 	}
 
-	if err := m.SetServerPassword("alpha", "secret"); err != nil {
+	if err := m.SetServerPassword("alpha", "secret-long-enough"); err != nil {
 		t.Fatalf("post-rename sync failure should retain the mutation: %v", err)
 	}
 	if !m.HasServerPassword("alpha") {
@@ -339,7 +339,7 @@ func TestDirectorySyncFailureRetainsVisibleMutationForRetry(t *testing.T) {
 	// The rename completed before directory sync failed, so the replacement is
 	// already readable even though its crash durability was uncertain.
 	reloaded := NewManager(path, refs, "g", nil)
-	if scope, _, ok := reloaded.Authenticate("secret"); !ok || scope != "alpha" {
+	if scope, _, ok := reloaded.Authenticate("secret-long-enough"); !ok || scope != "alpha" {
 		t.Fatalf("visible replacement was not readable: scope=%q ok=%v", scope, ok)
 	}
 
@@ -363,12 +363,12 @@ func TestSeededPasswords(t *testing.T) {
 	}
 
 	// Seeds must not overwrite an existing stored password.
-	_ = m.SetServerPassword("beta", "changed")
+	_ = m.SetServerPassword("beta", "changed-long-enough")
 	m2 := NewManager(path, refs, "g", map[string]string{"beta": "seeded"})
 	if _, _, ok := m2.Authenticate("seeded"); ok {
 		t.Error("seed overwrote an existing per-server password")
 	}
-	if scope, _, ok := m2.Authenticate("changed"); !ok || scope != "beta" {
+	if scope, _, ok := m2.Authenticate("changed-long-enough"); !ok || scope != "beta" {
 		t.Errorf("stored password lost after re-seed: (%q,%v)", scope, ok)
 	}
 }
