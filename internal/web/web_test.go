@@ -70,10 +70,9 @@ func TestCSRFValidation(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	sessionData := &SessionData{
-		CaptchaAnswer: 100,
-		CaptchaServer: "test",
-		CsrfToken:     "correct_csrf",
-		Language:      "en",
+		CaptchaID: srv.captchas.issue(pendingCaptcha{answer: 100, num1: 120, num2: 20, server: "test"}),
+		CsrfToken: "correct_csrf",
+		Language:  "en",
 	}
 	sessionBytes, _ := json.Marshal(sessionData)
 	signedSession, _ := encryptSession(sessionBytes)
@@ -226,8 +225,9 @@ func TestHandleCaptchaImage(t *testing.T) {
 		t.Errorf("Expected 404 without session numbers, got %d", rr.Code)
 	}
 
-	// With numbers in the session the endpoint serves a PNG.
-	sessionData := &SessionData{CaptchaNum1: 142, CaptchaNum2: 37, Language: "en"}
+	// With a pending challenge in the session the endpoint serves a PNG.
+	id := srv.captchas.issue(pendingCaptcha{answer: 179, num1: 142, num2: 37, server: "test"})
+	sessionData := &SessionData{CaptchaID: id, Language: "en"}
 	sessionBytes, _ := json.Marshal(sessionData)
 	signedSession, _ := encryptSession(sessionBytes)
 
@@ -338,7 +338,7 @@ func TestSEOEndpoints(t *testing.T) {
 	rrMeta := httptest.NewRecorder()
 	srv.handleIndex(rrMeta, reqMeta)
 	metaHTML := rrMeta.Body.String()
-	
+
 	for _, tag := range []string{
 		`<meta name="google-site-verification" content="g-verify-123">`,
 		`<meta name="msvalidate.01" content="b-verify-456">`,
@@ -384,7 +384,7 @@ func TestPolicyEndpoints(t *testing.T) {
 		for _, lang := range []string{"de", "en"} {
 			req := httptest.NewRequest("GET", path+"?lang="+lang, nil)
 			rr := httptest.NewRecorder()
-			
+
 			if path == "/terms" {
 				srv.handleTerms(rr, req)
 			} else {

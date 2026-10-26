@@ -13,7 +13,7 @@
     <div class="panel admin-login-panel">
         <div class="panel-grid-accent" aria-hidden="true"></div>
         <div class="panel-inner">
-            {{ if .AdminError }}<div class="admin-banner error">Invalid password.</div>{{ end }}
+            {{ if eq .AdminError "locked" }}<div class="admin-banner error">Too many failed attempts. Please try again later.</div>{{ else if .AdminError }}<div class="admin-banner error">Invalid password.</div>{{ end }}
             <form method="POST" action="/admin/login" class="admin-form" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ .CsrfToken }}">
                 <label class="admin-field">

@@ -56,10 +56,13 @@ Set the following environment variables:
 | `ADMIN_GUI_PASSWORD` | Global admin-GUI login password. Enables the admin GUI at `/admin` when set | *unset (admin GUI disabled)* |
 | `SESSION_KEY` | Secret used to encrypt session cookies; set it so sessions survive restarts | *random per start* |
 | `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy) | *unset (loopback-only)* |
+| `ALLOWED_HOSTS` | Comma-separated hostnames the site is served under. When `WEBSITE_URL` is unset, canonical/sitemap URLs only use a request host from this list (else the first entry) | *unset (any Host header)* |
+| `TRUST_PROXY_HEADERS` | Set to `true` behind a reverse proxy so rate limits use the client IP from `X-Forwarded-For` instead of the proxy's address. Never enable without a proxy that sets the header | `false` |
+| `COOKIE_SECURE` | `true` always marks the session cookie `Secure`, `false` never; unset sets it automatically for HTTPS requests (directly or via `X-Forwarded-Proto: https`) | *auto* |
 
 ### Search Engine Optimization & Verification
 
-- **Zero-Config Multi-domain SEO**: Sitemap URLs, `robots.txt` paths, and canonical `<link>` elements are dynamically resolved using the requesting host header (falling back to `WEBSITE_URL` if set). This ensures search engine crawlers index the correct domain (e.g., `freepalworld.wowcraft.pw`).
+- **Zero-Config Multi-domain SEO**: Sitemap URLs, `robots.txt` paths, and canonical `<link>` elements use `WEBSITE_URL` when set, otherwise the requesting host header. This ensures search engine crawlers index the correct domain (e.g., `freepalworld.wowcraft.pw`). In production set `WEBSITE_URL` or `ALLOWED_HOSTS` so a forged `Host` header cannot inject another domain (e.g. via a caching proxy).
 - **Meta-Tag Verification**: Supply `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`, or `YANDEX_SITE_VERIFICATION` environment variables to automatically output verification tags into the landing page `<head>`.
 - **File-Based Verification**: Place custom Search Console HTML/XML files (e.g., `google*.html`, `yandex_*.html`, `pinterest-*.html`, `BingSiteAuth.xml`) directly inside the `static/` folder. The application serves them directly at the root (e.g., `/google123456789.html`).
 
@@ -114,12 +117,24 @@ Without it the admin routes are not registered at all (they return 404).
 - Each server can additionally have its own **server-only password** that grants
   admin access to that one server. Global admins set these from the dashboard
   (*Server-only password* card), or you can seed them from the environment with
-  `SERVER_<ID>_ADMIN_GUI_PASSWORD`. Per-server passwords are stored salted and
-  hashed (SHA-256) in `admin.json` in the state directory.
+  `SERVER_<ID>_ADMIN_GUI_PASSWORD`. Per-server passwords are stored as salted
+  PBKDF2-HMAC-SHA256 hashes in `admin.json` in the state directory (hashes from
+  older versions are upgraded automatically on the next successful login).
+- Passwords must be at least **12 characters**. Shorter per-server passwords are
+  rejected in the dashboard; a shorter `ADMIN_GUI_PASSWORD` or seeded password
+  still works for now but logs a warning at startup — please change it.
 
 Login is a single password field: the app resolves it to the matching scope.
-Sessions are the same encrypted cookies used elsewhere and last 8 hours. All
-admin actions are CSRF-protected.
+Repeated failed logins lock out the client IP with exponential backoff (5 free
+attempts, then 1 minute doubling up to 1 hour), with an additional global limit
+across all clients. Sessions are the same encrypted cookies used elsewhere and
+last 8 hours; logging out revokes the session server-side. All admin actions are
+CSRF-protected.
+
+**Use the admin GUI only over HTTPS** (a TLS reverse proxy in front of port
+5000). The session cookie is `HttpOnly` and `SameSite=Lax`, and is marked
+`Secure` automatically for HTTPS requests (see `COOKIE_SECURE`). Behind a proxy,
+set `TRUST_PROXY_HEADERS=true` so login rate limits apply per client.
 
 ### Actions per server
 
@@ -148,6 +163,37 @@ Announcements are only sent while players are online; an empty (or auto-paused)
 server is restarted immediately without a countdown. A freshly rebooted server is
 kept alive for at least an hour so the idle timer does not stop it again right
 away.
+
+---
+
+## Hardened deployment
+
+The bundled compose files (`docker-compose.yml`, `docker-compose.ghcr.yml`) do
+not mount the Docker socket into the app. Instead:
+
+- A [socket proxy](https://github.com/wollomatic/socket-proxy) holds the socket
+  (read-only) and only forwards the calls the app needs: container
+  inspect/logs/start/stop/exec and exec start/inspect. Container creation,
+  image pulls and everything else are refused. Set `DOCKER_GID` to the docker
+  group id of the host (`getent group docker | cut -d: -f3`), e.g. in a `.env`
+  file next to the compose file.
+- The app runs as the unprivileged user `10001:10001` with a read-only root
+  filesystem, all capabilities dropped and `no-new-privileges`. Make the data
+  directory writable for it once: `sudo chown -R 10001:10001 ./data`.
+- Pin the image to a specific build (`:sha-<commit>` or a digest) rather than
+  `:latest`.
+
+If the proxy denies a call your setup needs, start it with `-loglevel=debug` to
+see the request. The image itself still runs as root by default so older
+deployments that mount `/var/run/docker.sock` directly keep working; that setup
+is deprecated because socket access equals root on the host.
+
+### Captcha protection
+
+Each captcha is stored server-side and can be answered exactly once — a wrong
+answer consumes it, and a solved cookie cannot be replayed. Repeated wrong
+answers lock the client IP out with backoff. Captcha solves extend the timer by
+12 hours up to a maximum of 48 hours remaining.
 
 ---
 
