@@ -262,6 +262,10 @@ func main() {
 		log.Printf("Managing server %q (container %s, address %s)", inst.ID, inst.DisplayName, inst.Address)
 	}
 
+	if os.Getenv("WEBSITE_URL") == "" && os.Getenv("ALLOWED_HOSTS") == "" {
+		log.Println("WEBSITE_URL and ALLOWED_HOSTS unset - canonical/sitemap URLs follow the request Host header")
+	}
+
 	// Warm up cache
 	_ = discord.InviteURL()
 

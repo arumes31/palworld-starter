@@ -15,10 +15,14 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o palworld-starter .
 
 # Final stage
-FROM alpine:3.24
+FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35
 
-# Install ca-certificates for external Discord API calls
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for external Discord API calls, and create an
+# unprivileged user (uid/gid 10001). The bundled compose files run the app as
+# this user behind a Docker socket proxy. The image itself still defaults to
+# root so existing deployments that mount /var/run/docker.sock directly keep
+# working; see "Hardened deployment" in the README.
+RUN apk --no-cache add ca-certificates &&     addgroup -S -g 10001 app &&     adduser -S -D -H -u 10001 -G app app
 
 WORKDIR /app
 
