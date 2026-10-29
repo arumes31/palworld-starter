@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -190,14 +191,68 @@ func TestAdminLogoutRevokesSession(t *testing.T) {
 		t.Fatal("fresh admin session rejected")
 	}
 
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/admin/logout", nil)
-	req.AddCookie(cookie)
-	srv.handleAdminLogout(rr, req)
+	if code := adminLogout(srv, cookie, http.MethodPost, "tok"); code != http.StatusSeeOther {
+		t.Fatalf("logout = %d, want 303", code)
+	}
 
 	// The old cookie value is still replayed after logout.
 	if code := get(); code != http.StatusUnauthorized {
 		t.Errorf("revoked session = %d, want 401", code)
+	}
+}
+
+// adminLogout sends a logout request and returns the status code.
+func adminLogout(srv *Server, cookie *http.Cookie, method, csrf string) int {
+	form := url.Values{"csrf_token": {csrf}}
+	req := httptest.NewRequest(method, "/admin/logout", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	return rr.Code
+}
+
+func TestAdminLogoutRequiresPostAndCsrf(t *testing.T) {
+	srv, _ := newAdminServer(t, "secret-long-enough")
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", "tok")
+
+	if code := adminLogout(srv, cookie, http.MethodGet, "tok"); code != http.StatusMethodNotAllowed {
+		t.Errorf("GET logout = %d, want 405", code)
+	}
+	if code := adminLogout(srv, cookie, http.MethodPost, "wrong"); code != http.StatusForbidden {
+		t.Errorf("logout with bad csrf = %d, want 403", code)
+	}
+	if code := adminLogout(srv, cookie, http.MethodPost, ""); code != http.StatusForbidden {
+		t.Errorf("logout without csrf = %d, want 403", code)
+	}
+	// None of the rejected requests may have revoked the session.
+	if srv.revoked.revoked("test-session") {
+		t.Error("rejected logout revoked the session")
+	}
+}
+
+func TestAdminLogoutSurvivesRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "admin-revoked.json")
+	srv, instances := newAdminServer(t, "secret-long-enough")
+	if err := srv.PersistRevocations(path); err != nil {
+		t.Fatal(err)
+	}
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", "tok")
+	if code := adminLogout(srv, cookie, http.MethodPost, "tok"); code != http.StatusSeeOther {
+		t.Fatalf("logout = %d, want 303", code)
+	}
+
+	// Rebuild the web server with the same key, credentials and state dir.
+	restarted := New(instances, testTemplateDir, "../../static", srv.admin)
+	if err := restarted.PersistRevocations(path); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/players?srv=alpha", nil)
+	req.AddCookie(cookie)
+	restarted.handleAdminPlayers(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("revoked session after restart = %d, want 401", rr.Code)
 	}
 }
 

@@ -18,9 +18,12 @@ services:
       - '-loglevel=info'
       - '-listenip=0.0.0.0'
       - '-allowfrom=palworld-starter'
+      # Container paths are pinned to the managed game container, so the app
+      # cannot act on any other container. With several servers list every
+      # container name, e.g. containers/(palworld-server-1|palworld-server-2)/...
       - '-allowHEAD=(/v1\..{1,2})?/_ping'
-      - '-allowGET=(/v1\..{1,2})?/(_ping|version|containers/[^/]+/(json|logs)|exec/[^/]+/json)'
-      - '-allowPOST=/v1\..{1,2}/(containers/[^/]+/(start|stop|exec)|exec/[^/]+/(start|resize))'
+      - '-allowGET=(/v1\..{1,2})?/(_ping|version|containers/palworld-server/(json|logs)|exec/[^/]+/json)'
+      - '-allowPOST=/v1\..{1,2}/(containers/palworld-server/(start|stop|exec)|exec/[^/]+/(start|resize))'
       - '-watchdoginterval=3600'
       - '-stoponwatchdog'
       - '-shutdowngracetime=5'

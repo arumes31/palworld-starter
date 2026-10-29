@@ -34,6 +34,12 @@ const BootEstimateSeconds = 90
 // player-activity ticker uses, so captcha solves cannot push it out forever.
 const maxTimeRemaining = 48 * 3600
 
+// publicActionsPerHour is how many successful captcha-gated starts and time
+// extensions one client IP may make before being locked out for a while. A
+// solved captcha proves little against automation, so success is rate limited
+// as well as failure.
+const publicActionsPerHour = 6
+
 // Instance is one managed Palworld server.
 type Instance struct {
 	ID          string
@@ -58,6 +64,8 @@ type Server struct {
 	loginFails   *failureLimiter // failed admin logins per client IP
 	loginGlobal  *failureLimiter // failed admin logins across all clients
 	revoked      *revocationList // logged-out admin sessions
+	actionLimit  *failureLimiter // successful public start/extend actions per client IP
+	turnstile    *turnstile      // optional Cloudflare bot check; nil when disabled
 }
 
 // New creates the web server for the given server instances (at least one).
@@ -82,7 +90,9 @@ func New(instances []*Instance, templateDir, staticDir string, adm *admin.Manage
 		captchaFails: newFailureLimiter(10, 30*time.Second, 15*time.Minute, time.Hour),
 		loginFails:   newFailureLimiter(5, time.Minute, time.Hour, 24*time.Hour),
 		loginGlobal:  newFailureLimiter(50, time.Minute, 15*time.Minute, 15*time.Minute),
-		revoked:      &revocationList{ids: make(map[string]int64)},
+		revoked:      newRevocationList(),
+		actionLimit:  newFailureLimiter(publicActionsPerHour-1, 30*time.Minute, 6*time.Hour, time.Hour),
+		turnstile:    newTurnstileFromEnv(),
 	}
 }
 
@@ -172,7 +182,7 @@ func (s *Server) Routes() http.Handler {
 
 	fileServer := http.FileServer(http.Dir(s.staticDir))
 	mux.Handle("/static/", http.StripPrefix("/static", fileServer))
-	return securityHeaders(mux)
+	return securityHeaders(mux, contentSecurityPolicy(s.turnstile != nil))
 }
 
 // ServerPanel is the per-server view model for the index page. Status adds a
@@ -203,6 +213,7 @@ type PageContext struct {
 	QuestionSegments       []captcha.Segment
 	RetryTarget            string
 	CsrfToken              string
+	TurnstileSiteKey       string
 	ServerAddress          string
 	BootEstimateSeconds    int
 	Servers                []ServerPanel
@@ -413,8 +424,17 @@ func (s *Server) handleCaptchaPage(isStart bool) http.HandlerFunc {
 			QuestionSegments:    ch.Segments(),
 			DiscordUrl:          discordUrl,
 			CsrfToken:           sessionData.CsrfToken,
+			TurnstileSiteKey:    s.turnstileSiteKey(),
 		})
 	}
+}
+
+// turnstileSiteKey returns the public Turnstile key, or "" when disabled.
+func (s *Server) turnstileSiteKey() string {
+	if s.turnstile == nil {
+		return ""
+	}
+	return s.turnstile.siteKey
 }
 
 // handleCaptchaImage serves the session's captcha numbers as PNGs
@@ -487,11 +507,33 @@ func (s *Server) verifyCaptcha(r *http.Request, sessionData *SessionData) (*Inst
 		return inst, false
 	}
 	ans, err := strconv.Atoi(r.FormValue("captcha_answer"))
-	if !found || err != nil || ans != pending.answer {
+	if !found || err != nil || ans != pending.answer ||
+		(s.turnstile != nil && !s.turnstile.verify(r, ip)) {
 		s.captchaFails.fail(ip, now)
 		return inst, false
 	}
 	return inst, true
+}
+
+// publicActionAllowed enforces publicActionsPerHour. When the client IP is
+// locked out it writes a 429 and returns false without touching the captcha.
+func (s *Server) publicActionAllowed(w http.ResponseWriter, r *http.Request, lang string) bool {
+	wait := s.actionLimit.blocked(s.clientIP(r), time.Now())
+	if wait == 0 {
+		return true
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	msg := "Too many server starts and extensions from your address - please try again later."
+	if lang == "de" {
+		msg = "Zu viele Serverstarts und Verlängerungen von deiner Adresse - bitte versuche es später erneut."
+	}
+	http.Error(w, msg, http.StatusTooManyRequests)
+	return false
+}
+
+// recordPublicAction counts a successful start or extension against the IP.
+func (s *Server) recordPublicAction(r *http.Request) {
+	s.actionLimit.fail(s.clientIP(r), time.Now())
 }
 
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
@@ -504,6 +546,9 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	submittedCsrf := r.FormValue("csrf_token")
 	if submittedCsrf == "" || submittedCsrf != sessionData.CsrfToken {
 		http.Error(w, "Forbidden - CSRF verification failed", http.StatusForbidden)
+		return
+	}
+	if !s.publicActionAllowed(w, r, sessionData.Language) {
 		return
 	}
 
@@ -534,6 +579,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 				}
 				return min(val+43200, maxTimeRemaining)
 			})
+			s.recordPublicAction(r)
 			log.Printf("Server %s started + 12 hours added", inst.ID)
 			// Show boot progress until the game's REST API is reachable.
 			http.Redirect(w, r, "/starting?srv="+inst.ID, http.StatusSeeOther)
@@ -562,6 +608,9 @@ func (s *Server) handleAddTime(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden - CSRF verification failed", http.StatusForbidden)
 		return
 	}
+	if !s.publicActionAllowed(w, r, sessionData.Language) {
+		return
+	}
 
 	inst, ok := s.verifyCaptcha(r, sessionData)
 	// The challenge is consumed either way; persist that before redirecting.
@@ -573,6 +622,7 @@ func (s *Server) handleAddTime(w http.ResponseWriter, r *http.Request) {
 
 	status := inst.Game.Status()
 	if status == "running" {
+		s.recordPublicAction(r)
 		remaining := inst.State.UpdateTimeRemaining(extendTime)
 		log.Printf("+12 hours added to %s, now %dh", inst.ID, remaining/3600)
 	}

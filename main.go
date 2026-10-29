@@ -48,6 +48,16 @@ func envKey(id string) string {
 	}, up)
 }
 
+// restBase resolves a server's REST API base URL: the full URL in env var
+// urlKey when set (http or https), else http://host:port.
+func restBase(urlKey, host string, port int) string {
+	base, err := game.RESTBaseURL(os.Getenv(urlKey), host, port)
+	if err != nil {
+		log.Fatalf("%s: %v", urlKey, err)
+	}
+	return base
+}
+
 // loadInstances builds one web.Instance per configured server.
 //
 // Multi-server mode: SERVERS is a comma-separated list of server ids. Each
@@ -67,7 +77,7 @@ func loadInstances() []*web.Instance {
 			ID:          "default",
 			DisplayName: envOr("DOCKER_CONTAINER_NAME", "Palworld Server"),
 			Address:     envOr("SERVER_ADDRESS", "80.66.59.216:8211"),
-			Game:        game.NewController(containerName, restHost, 8212, os.Getenv("ADMIN_PASSWORD")),
+			Game:        game.NewControllerURL(containerName, restBase("REST_API_URL", restHost, 8212), os.Getenv("ADMIN_PASSWORD")),
 			State:       state.New(filepath.Join(stateDir, legacyTimeFilePath)),
 		}}
 	}
@@ -97,7 +107,7 @@ func loadInstances() []*web.Instance {
 			ID:          id,
 			DisplayName: envOr("SERVER_"+key+"_NAME", id),
 			Address:     envOr("SERVER_"+key+"_ADDRESS", ""),
-			Game:        game.NewController(containerName, restHost, restPort, adminPassword),
+			Game:        game.NewControllerURL(containerName, restBase("SERVER_"+key+"_RESTURL", restHost, restPort), adminPassword),
 			State:       state.New(filepath.Join(stateDir, fmt.Sprintf("gamecontroller-%s-time_remaining.json", id))),
 		})
 	}
@@ -288,6 +298,12 @@ func main() {
 	startDiscordRefreshTicker(ctx)
 
 	srv := web.New(instances, "templates", "./static", adminMgr)
+	revokedPath := filepath.Join(envOr("STATE_DIR", "/hostmem"), "admin-revoked.json")
+	if err := srv.PersistRevocations(revokedPath); err != nil {
+		// Refuse to start: forgetting revocations would revive logged-out
+		// admin sessions whose cookies are still valid under SESSION_KEY.
+		log.Fatalf("Cannot load admin session revocations from %s: %v", revokedPath, err)
+	}
 
 	// No WriteTimeout: /stop legitimately blocks for the graceful in-game
 	// shutdown countdown, which can exceed a minute.

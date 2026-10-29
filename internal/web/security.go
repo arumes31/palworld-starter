@@ -3,6 +3,9 @@ package web
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -11,27 +14,38 @@ import (
 	"time"
 )
 
-// contentSecurityPolicy allows only same-origin resources plus Google Fonts.
-// Inline scripts and styles are still used by the templates, so 'unsafe-inline'
-// stays for now; framing is forbidden entirely.
-const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self' 'unsafe-inline'; " +
-	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-	"font-src 'self' https://fonts.gstatic.com; " +
-	"img-src 'self' data: blob:; " +
-	"connect-src 'self'; " +
-	"object-src 'none'; " +
-	"base-uri 'self'; " +
-	"form-action 'self'; " +
-	"frame-ancestors 'none'"
+// contentSecurityPolicy allows only same-origin resources plus Google Fonts
+// and, when turnstile is set, Cloudflare's challenge script and frame. Inline
+// scripts and styles are still used by the templates, so 'unsafe-inline' stays
+// for now; framing this site is forbidden entirely.
+func contentSecurityPolicy(turnstile bool) string {
+	scripts, frames, connect := "'self' 'unsafe-inline'", "'none'", "'self'"
+	if turnstile {
+		const cf = "https://challenges.cloudflare.com"
+		scripts += " " + cf
+		frames = cf
+		connect += " " + cf
+	}
+	return "default-src 'self'; " +
+		"script-src " + scripts + "; " +
+		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+		"font-src 'self' https://fonts.gstatic.com; " +
+		"img-src 'self' data: blob:; " +
+		"connect-src " + connect + "; " +
+		"frame-src " + frames + "; " +
+		"object-src 'none'; " +
+		"base-uri 'self'; " +
+		"form-action 'self'; " +
+		"frame-ancestors 'none'"
+}
 
 // securityHeaders adds clickjacking, sniffing and referrer protection to every
 // response.
-func securityHeaders(next http.Handler) http.Handler {
+func securityHeaders(next http.Handler, csp string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(w, r)
@@ -177,15 +191,48 @@ func (l *failureLimiter) pruneLocked(now time.Time) {
 }
 
 // revocationList remembers logged-out admin session ids until they expire on
-// their own, so a copied cookie stops working after logout.
+// their own, so a copied cookie stops working after logout. With a path set the
+// list is persisted, because a stable SESSION_KEY keeps cookies valid across
+// restarts and a forgotten revocation would otherwise revive the session.
 type revocationList struct {
-	mu  sync.Mutex
-	ids map[string]int64 // session id -> unix expiry
+	mu   sync.Mutex
+	ids  map[string]int64 // session id -> unix expiry
+	path string           // persistence file; empty keeps the list in memory
 }
 
-func (rl *revocationList) revoke(id string, expires int64) {
+func newRevocationList() *revocationList {
+	return &revocationList{ids: make(map[string]int64)}
+}
+
+// persistTo loads previously revoked ids from path and saves every later
+// revocation there. A missing file is not an error.
+func (rl *revocationList) persistTo(path string) error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.path = path
+	data, err := os.ReadFile(path) // #nosec G304 -- operator-configured state path
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var stored map[string]int64
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	now := time.Now().Unix()
+	for id, exp := range stored {
+		if exp > now {
+			rl.ids[id] = exp
+		}
+	}
+	return nil
+}
+
+func (rl *revocationList) revoke(id string, expires int64) error {
 	if id == "" {
-		return
+		return nil
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -196,6 +243,23 @@ func (rl *revocationList) revoke(id string, expires int64) {
 		}
 	}
 	rl.ids[id] = expires
+	return rl.saveLocked()
+}
+
+// saveLocked writes the list atomically (temp file + rename).
+func (rl *revocationList) saveLocked() error {
+	if rl.path == "" {
+		return nil
+	}
+	data, err := json.Marshal(rl.ids)
+	if err != nil {
+		return err
+	}
+	tmp := rl.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, rl.path)
 }
 
 func (rl *revocationList) revoked(id string) bool {

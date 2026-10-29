@@ -44,7 +44,7 @@ func (c *Controller) postJSON(name string, payload interface{}) error {
 	req.Header.Set("Content-Type", "application/json")
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 8 * time.Second}
+	hc := restClient(8 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return err
