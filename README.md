@@ -47,6 +47,7 @@ Set the following environment variables:
 | `DISCORD_FALLBACK_URL` | Fallback invitation link | `https://discord.gg/XXXXXINVITENOTFOUNDXXXXXX` |
 | `SERVER_ADDRESS` | Public game address shown on the page (IP:port) | `80.66.59.216:8211` |
 | `REST_API_HOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
+| `REST_API_URL` | Full REST API base URL, e.g. `https://pal.example.com:8212` (overrides `REST_API_HOST`; `/v1/api` is appended when no path is given). HTTPS certificates are verified; add a private CA via `SSL_CERT_FILE` | *unset (http://`REST_API_HOST`:8212)* |
 | `WEBSITE_URL` | Website URL used for in-game broadcasts | `https://pal.wowcraft.pw/` |
 | `GOOGLE_SITE_VERIFICATION` | Google Search Console verification token | *Optional* |
 | `BING_SITE_VERIFICATION` | Bing Webmaster Tools verification token | *Optional* |
@@ -58,6 +59,7 @@ Set the following environment variables:
 | `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy) | *unset (loopback-only)* |
 | `ALLOWED_HOSTS` | Comma-separated hostnames the site is served under. When `WEBSITE_URL` is unset, canonical/sitemap URLs only use a request host from this list (else the first entry) | *unset (any Host header)* |
 | `TRUST_PROXY_HEADERS` | Set to `true` behind a reverse proxy so rate limits use the client IP from `X-Forwarded-For` instead of the proxy's address. Never enable without a proxy that sets the header | `false` |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Enable [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) on the captcha pages; the token is verified server-side before a server is started or extended. Set both or neither | *unset (disabled)* |
 | `COOKIE_SECURE` | `true` always marks the session cookie `Secure`, `false` never; unset sets it automatically for HTTPS requests (directly or via `X-Forwarded-Proto: https`) | *auto* |
 
 ### Search Engine Optimization & Verification
@@ -79,6 +81,7 @@ variables (id uppercased, non-alphanumeric characters replaced by `_`):
 | `SERVER_<ID>_ADDRESS` | Public game address (IP:port) | *empty* |
 | `SERVER_<ID>_RESTHOST` | Hostname/IP of the Palworld REST API | `host.docker.internal` |
 | `SERVER_<ID>_RESTPORT` | Host port of the container's Palworld REST API | `8212` |
+| `SERVER_<ID>_RESTURL` | Full REST API base URL (http or https), overrides `RESTHOST`/`RESTPORT` | *unset* |
 | `SERVER_<ID>_ADMIN_PASSWORD` | REST API admin password for this server | `ADMIN_PASSWORD` |
 | `SERVER_<ID>_ADMIN_GUI_PASSWORD` | Seeds a per-server admin-GUI password granting access to this server only | *unset* |
 
@@ -128,8 +131,11 @@ Login is a single password field: the app resolves it to the matching scope.
 Repeated failed logins lock out the client IP with exponential backoff (5 free
 attempts, then 1 minute doubling up to 1 hour), with an additional global limit
 across all clients. Sessions are the same encrypted cookies used elsewhere and
-last 8 hours; logging out revokes the session server-side. All admin actions are
-CSRF-protected.
+last 8 hours; logging out (a CSRF-protected POST) revokes the session
+server-side. Revocations are stored in `STATE_DIR/admin-revoked.json` until the
+session would have expired, so a copied cookie stays dead across restarts even
+with a fixed `SESSION_KEY`; the app refuses to start with the admin GUI enabled
+if that file cannot be written. All admin actions are CSRF-protected.
 
 **Use the admin GUI only over HTTPS** (a TLS reverse proxy in front of port
 5000). The session cookie is `HttpOnly` and `SameSite=Lax`, and is marked
@@ -194,6 +200,34 @@ Each captcha is stored server-side and can be answered exactly once — a wrong
 answer consumes it, and a solved cookie cannot be replayed. Repeated wrong
 answers lock the client IP out with backoff. Captcha solves extend the timer by
 12 hours up to a maximum of 48 hours remaining.
+
+The number images are randomly distorted on every request (dot size, shear,
+jitter, colour and overdrawn clutter), which makes scripted reading harder but
+cannot rule it out. Two further layers limit automation:
+
+- Each client IP may make 6 successful starts/extensions before it is locked out
+  (30 minutes, doubling up to 6 hours; forgotten after an idle hour). Behind a
+  reverse proxy set `TRUST_PROXY_HEADERS=true`, otherwise all visitors share
+  the proxy's address.
+- For real bot protection set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`.
+  The widget appears below the puzzle and its token is checked against
+  Cloudflare before the action runs; the Content-Security-Policy then allows
+  `challenges.cloudflare.com`.
+
+### Game REST API
+
+The Palworld REST API uses HTTP Basic auth, so the admin password travels in
+cleartext over plain HTTP. Keep that hop on a private network (the default
+compose setup talks container-to-container), or point `REST_API_URL` /
+`SERVER_<ID>_RESTURL` at an `https://` endpoint, e.g. a TLS proxy in front of
+the game server. A plain-HTTP URL to a public host logs a warning at startup.
+REST redirects are never followed, so a tampered response cannot redirect the
+credentials or a POST elsewhere.
+
+The bundled socket-proxy rules only allow container calls for
+`palworld-server`. If your game containers have other names (e.g. multiple
+servers), edit the `-allowGET` / `-allowPOST` rules to list them, e.g.
+`containers/(palworld-server-1|palworld-server-2)/(json|logs)`.
 
 ---
 

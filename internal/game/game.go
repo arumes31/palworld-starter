@@ -74,23 +74,29 @@ type Controller struct {
 const refreshRetry = 30 * time.Second
 
 // NewController creates a controller for the named container whose Palworld
-// REST API listens on the given host and port. adminPassword authenticates
-// REST calls; when empty it is scraped from the container's ADMIN_PASSWORD
-// env on the first inspect. A Docker init failure is logged, not fatal - all
-// methods degrade gracefully.
+// REST API listens on plain HTTP at the given host and port. See
+// NewControllerURL for HTTPS endpoints.
 func NewController(containerName, restHost string, restPort int, adminPassword string) *Controller {
+	apiBase, _ := RESTBaseURL("", restHost, restPort) // cannot fail without a URL
+	return NewControllerURL(containerName, apiBase, adminPassword)
+}
+
+// NewControllerURL creates a controller for the named container whose Palworld
+// REST API lives at apiBase (see RESTBaseURL). adminPassword authenticates
+// REST calls; when empty it is scraped from the container's ADMIN_PASSWORD env
+// on the first inspect. A Docker init failure is logged, not fatal - all
+// methods degrade gracefully.
+func NewControllerURL(containerName, apiBase, adminPassword string) *Controller {
 	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		log.Printf("Failed to initialize Docker client: %v", err)
 		cli = nil
 	}
-	if restHost == "" {
-		restHost = "localhost"
-	}
+	warnPlaintextREST(apiBase)
 	return &Controller{
 		cli:             cli,
 		containerName:   containerName,
-		apiBase:         fmt.Sprintf("http://%s:%d/v1/api", restHost, restPort),
+		apiBase:         apiBase,
 		adminPassword:   adminPassword,
 		passwordFromEnv: adminPassword != "",
 	}
@@ -259,7 +265,7 @@ func (c *Controller) fetchPlayers() ([]AdminPlayerInfo, bool) {
 	req, _ := http.NewRequest("GET", c.endpoint("players"), nil)
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 4 * time.Second}
+	hc := restClient(4 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		log.Printf("[%s] fetchPlayers error: %v", c.containerName, err)
@@ -323,7 +329,7 @@ func (c *Controller) fetchInfo() (ServerInfo, bool) {
 	req, _ := http.NewRequest("GET", c.endpoint("info"), nil)
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 4 * time.Second}
+	hc := restClient(4 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return ServerInfo{}, false
@@ -369,7 +375,7 @@ func (c *Controller) fetchMetrics() (ServerMetrics, bool) {
 	req, _ := http.NewRequest("GET", c.endpoint("metrics"), nil)
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 4 * time.Second}
+	hc := restClient(4 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return ServerMetrics{}, false
@@ -415,7 +421,7 @@ func (c *Controller) fetchSettings() (ServerSettings, bool) {
 	req, _ := http.NewRequest("GET", c.endpoint("settings"), nil)
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 4 * time.Second}
+	hc := restClient(4 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return ServerSettings{}, false
@@ -564,7 +570,7 @@ func (c *Controller) Broadcast(message string) {
 	req.Header.Set("Content-Type", "application/json")
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 5 * time.Second}
+	hc := restClient(5 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		log.Printf("REST API broadcast error: %v", err)
@@ -631,7 +637,7 @@ func (c *Controller) SaveWorld() error {
 	}
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 60 * time.Second}
+	hc := restClient(60 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return err
@@ -657,7 +663,7 @@ func (c *Controller) shutdownViaREST(waitSeconds int, message string) error {
 	req.Header.Set("Content-Type", "application/json")
 	c.authorize(req)
 
-	hc := &http.Client{Timeout: 10 * time.Second}
+	hc := restClient(10 * time.Second)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return err

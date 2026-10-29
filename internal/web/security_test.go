@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -190,14 +191,68 @@ func TestAdminLogoutRevokesSession(t *testing.T) {
 		t.Fatal("fresh admin session rejected")
 	}
 
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/admin/logout", nil)
-	req.AddCookie(cookie)
-	srv.handleAdminLogout(rr, req)
+	if code := adminLogout(srv, cookie, http.MethodPost, "tok"); code != http.StatusSeeOther {
+		t.Fatalf("logout = %d, want 303", code)
+	}
 
 	// The old cookie value is still replayed after logout.
 	if code := get(); code != http.StatusUnauthorized {
 		t.Errorf("revoked session = %d, want 401", code)
+	}
+}
+
+// adminLogout sends a logout request and returns the status code.
+func adminLogout(srv *Server, cookie *http.Cookie, method, csrf string) int {
+	form := url.Values{"csrf_token": {csrf}}
+	req := httptest.NewRequest(method, "/admin/logout", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rr, req)
+	return rr.Code
+}
+
+func TestAdminLogoutRequiresPostAndCsrf(t *testing.T) {
+	srv, _ := newAdminServer(t, "secret-long-enough")
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", "tok")
+
+	if code := adminLogout(srv, cookie, http.MethodGet, "tok"); code != http.StatusMethodNotAllowed {
+		t.Errorf("GET logout = %d, want 405", code)
+	}
+	if code := adminLogout(srv, cookie, http.MethodPost, "wrong"); code != http.StatusForbidden {
+		t.Errorf("logout with bad csrf = %d, want 403", code)
+	}
+	if code := adminLogout(srv, cookie, http.MethodPost, ""); code != http.StatusForbidden {
+		t.Errorf("logout without csrf = %d, want 403", code)
+	}
+	// None of the rejected requests may have revoked the session.
+	if srv.revoked.revoked("test-session") {
+		t.Error("rejected logout revoked the session")
+	}
+}
+
+func TestAdminLogoutSurvivesRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "admin-revoked.json")
+	srv, instances := newAdminServer(t, "secret-long-enough")
+	if err := srv.PersistRevocations(path); err != nil {
+		t.Fatal(err)
+	}
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", "tok")
+	if code := adminLogout(srv, cookie, http.MethodPost, "tok"); code != http.StatusSeeOther {
+		t.Fatalf("logout = %d, want 303", code)
+	}
+
+	// Rebuild the web server with the same key, credentials and state dir.
+	restarted := New(instances, testTemplateDir, "../../static", srv.admin)
+	if err := restarted.PersistRevocations(path); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/players?srv=alpha", nil)
+	req.AddCookie(cookie)
+	restarted.handleAdminPlayers(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("revoked session after restart = %d, want 401", rr.Code)
 	}
 }
 
@@ -221,5 +276,29 @@ func TestAdminLoginLockout(t *testing.T) {
 	}
 	if loc := login("secret-long-enough"); loc != "/admin/login?err=locked" {
 		t.Errorf("login during lockout = %q, want locked", loc)
+	}
+}
+
+func TestRevocationPersistFailures(t *testing.T) {
+	// An unwritable state path is refused up front.
+	missing := filepath.Join(t.TempDir(), "no-such-dir", "admin-revoked.json")
+	if err := newRevocationList().persistTo(missing); err == nil {
+		t.Error("persistTo accepted an unwritable path")
+	}
+
+	// A write that fails at logout time is reported, not swallowed.
+	dir := t.TempDir()
+	srv, _ := newAdminServer(t, "secret-long-enough")
+	if err := srv.PersistRevocations(filepath.Join(dir, "admin-revoked.json")); err != nil {
+		t.Fatal(err)
+	}
+	srv.revoked.path = filepath.Join(dir, "gone", "admin-revoked.json")
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", "tok")
+	if code := adminLogout(srv, cookie, http.MethodPost, "tok"); code != http.StatusInternalServerError {
+		t.Errorf("logout with failed persistence = %d, want 500", code)
+	}
+	// The session is still revoked for this process.
+	if !srv.revoked.revoked("test-session") {
+		t.Error("failed persistence left the session usable")
 	}
 }

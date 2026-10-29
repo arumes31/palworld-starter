@@ -151,15 +151,40 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
+// PersistRevocations keeps logged-out admin sessions in path so they stay
+// revoked across restarts. Call it before serving requests.
+func (s *Server) PersistRevocations(path string) error {
+	return s.revoked.persistTo(path)
+}
+
+// handleAdminLogout ends the admin session. It only accepts a POST carrying the
+// session's CSRF token, so a cross-site link cannot log an admin out.
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	sd := getSession(r)
+	if !checkCsrf(sd, r) {
+		http.Error(w, "Forbidden - CSRF verification failed", http.StatusForbidden)
+		return
+	}
 	// Revoke server-side too, so a copy of the cookie stops working.
-	s.revoked.revoke(sd.AdminSessionID, sd.AdminExpires)
+	err := s.revoked.revoke(sd.AdminSessionID, sd.AdminExpires)
 	sd.AdminScope = ""
 	sd.AdminRevision = ""
 	sd.AdminExpires = 0
 	sd.AdminSessionID = ""
 	saveSession(w, r, sd)
+	if err != nil {
+		// The session is revoked in memory, but would revive after a restart.
+		// Do not pretend the logout fully succeeded.
+		log.Printf("admin: persisting session revocation failed: %v", err)
+		http.Error(w, "Logged out, but the revocation could not be saved and will be lost on restart. "+
+			"Change the admin password to invalidate copies of this session.", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
 

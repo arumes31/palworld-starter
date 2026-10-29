@@ -31,6 +31,7 @@
                     {{ end }}
                 </select>
             </div>
+            {{ if .TurnstileSiteKey }}<div class="cf-turnstile" data-sitekey="{{ .TurnstileSiteKey }}" data-theme="dark" data-language="{{ .Language }}"></div>{{ end }}
             <div class="action-module">
                 <button type="submit" class="btn-primary">
                     {{ if eq .Language "de" }}Server starten{{ else }}Start Server{{ end }}
@@ -43,4 +44,5 @@
 
 {{ define "scripts" }}
 <script src="/static/scratch.js"></script>
+{{ if .TurnstileSiteKey }}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{{ end }}
 {{ end }}
