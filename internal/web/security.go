@@ -205,29 +205,31 @@ func newRevocationList() *revocationList {
 }
 
 // persistTo loads previously revoked ids from path and saves every later
-// revocation there. A missing file is not an error.
+// revocation there. A missing file is not an error, but path must be writable:
+// the list is written back immediately, so a read-only or missing state dir
+// fails at startup instead of silently losing revocations at logout.
 func (rl *revocationList) persistTo(path string) error {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	rl.path = path
 	data, err := os.ReadFile(path) // #nosec G304 -- operator-configured state path
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
 		return err
-	}
-	var stored map[string]int64
-	if err := json.Unmarshal(data, &stored); err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
-	}
-	now := time.Now().Unix()
-	for id, exp := range stored {
-		if exp > now {
-			rl.ids[id] = exp
+	default:
+		var stored map[string]int64
+		if err := json.Unmarshal(data, &stored); err != nil {
+			return fmt.Errorf("parse %s: %w", path, err)
+		}
+		now := time.Now().Unix()
+		for id, exp := range stored {
+			if exp > now {
+				rl.ids[id] = exp
+			}
 		}
 	}
-	return nil
+	return rl.saveLocked()
 }
 
 func (rl *revocationList) revoke(id string, expires int64) error {

@@ -298,11 +298,13 @@ func main() {
 	startDiscordRefreshTicker(ctx)
 
 	srv := web.New(instances, "templates", "./static", adminMgr)
-	revokedPath := filepath.Join(envOr("STATE_DIR", "/hostmem"), "admin-revoked.json")
-	if err := srv.PersistRevocations(revokedPath); err != nil {
-		// Refuse to start: forgetting revocations would revive logged-out
-		// admin sessions whose cookies are still valid under SESSION_KEY.
-		log.Fatalf("Cannot load admin session revocations from %s: %v", revokedPath, err)
+	if adminMgr.Enabled() {
+		revokedPath := filepath.Join(envOr("STATE_DIR", "/hostmem"), "admin-revoked.json")
+		if err := srv.PersistRevocations(revokedPath); err != nil {
+			// Refuse to start: forgetting revocations would revive logged-out
+			// admin sessions whose cookies are still valid under SESSION_KEY.
+			log.Fatalf("Cannot load or write admin session revocations at %s: %v", revokedPath, err)
+		}
 	}
 
 	// No WriteTimeout: /stop legitimately blocks for the graceful in-game

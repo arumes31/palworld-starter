@@ -134,7 +134,8 @@ across all clients. Sessions are the same encrypted cookies used elsewhere and
 last 8 hours; logging out (a CSRF-protected POST) revokes the session
 server-side. Revocations are stored in `STATE_DIR/admin-revoked.json` until the
 session would have expired, so a copied cookie stays dead across restarts even
-with a fixed `SESSION_KEY`. All admin actions are CSRF-protected.
+with a fixed `SESSION_KEY`; the app refuses to start with the admin GUI enabled
+if that file cannot be written. All admin actions are CSRF-protected.
 
 **Use the admin GUI only over HTTPS** (a TLS reverse proxy in front of port
 5000). The session cookie is `HttpOnly` and `SameSite=Lax`, and is marked

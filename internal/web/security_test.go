@@ -278,3 +278,27 @@ func TestAdminLoginLockout(t *testing.T) {
 		t.Errorf("login during lockout = %q, want locked", loc)
 	}
 }
+
+func TestRevocationPersistFailures(t *testing.T) {
+	// An unwritable state path is refused up front.
+	missing := filepath.Join(t.TempDir(), "no-such-dir", "admin-revoked.json")
+	if err := newRevocationList().persistTo(missing); err == nil {
+		t.Error("persistTo accepted an unwritable path")
+	}
+
+	// A write that fails at logout time is reported, not swallowed.
+	dir := t.TempDir()
+	srv, _ := newAdminServer(t, "secret-long-enough")
+	if err := srv.PersistRevocations(filepath.Join(dir, "admin-revoked.json")); err != nil {
+		t.Fatal(err)
+	}
+	srv.revoked.path = filepath.Join(dir, "gone", "admin-revoked.json")
+	cookie := adminCookie(t, srv.admin, "secret-long-enough", "tok")
+	if code := adminLogout(srv, cookie, http.MethodPost, "tok"); code != http.StatusInternalServerError {
+		t.Errorf("logout with failed persistence = %d, want 500", code)
+	}
+	// The session is still revoked for this process.
+	if !srv.revoked.revoked("test-session") {
+		t.Error("failed persistence left the session usable")
+	}
+}
