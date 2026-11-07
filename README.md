@@ -13,7 +13,7 @@ A lightweight web application that controls and manages a Palworld server runnin
 ## Building & Running
 
 ### Prerequisites
-- Go 1.26+ installed on your host.
+- Go 1.26.10+ installed on your host (`go.mod` specifies Go 1.26.10; container images build with Go 1.27.3).
 - Docker running and accessible (via `DOCKER_HOST` or standard socket).
 
 ### Run Locally
@@ -61,6 +61,8 @@ Set the following environment variables:
 | `TRUST_PROXY_HEADERS` | Set to `true` behind a reverse proxy so rate limits use the client IP from `X-Forwarded-For` instead of the proxy's address. Never enable without a proxy that sets the header | `false` |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Enable [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) on the captcha pages; the token is verified server-side before a server is started or extended. Set both or neither | *unset (disabled)* |
 | `COOKIE_SECURE` | `true` always marks the session cookie `Secure`, `false` never; unset sets it automatically for HTTPS requests (directly or via `X-Forwarded-Proto: https`) | *auto* |
+| `STATE_DIR` | Directory where persistent server state, remaining timer, and admin revocations are stored | `/hostmem` |
+| `DOCKER_GID` | Host Docker group ID for socket permissions in rootless/hardened proxy deployments | *unset* |
 
 ### Search Engine Optimization & Verification
 
