@@ -44,6 +44,7 @@ func TestStopAuthorized(t *testing.T) {
 
 func TestHandleStopRejectsProxiedLoopback(t *testing.T) {
 	srv := newTestServer(t)
+	srv.stopToken = ""
 	req := httptest.NewRequest(http.MethodPost, "/stop", nil)
 	req.RemoteAddr = "127.0.0.1:5555"
 	req.Header.Set("X-Forwarded-For", "203.0.113.7")
