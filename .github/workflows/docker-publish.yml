@@ -1,9 +1,9 @@
 name: Docker Publish to GHCR
 
+# Main-branch images are built, tested and pushed (multi-arch) by ci.yml; pushing
+# them here too raced on the same ghcr.io/...:main tag with an amd64-only image.
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
@@ -21,6 +21,7 @@ concurrency:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
