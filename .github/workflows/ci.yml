@@ -3,8 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
 
 permissions:
   contents: read
@@ -17,6 +23,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -32,6 +39,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       security-events: write
@@ -62,6 +70,7 @@ jobs:
   deps:
     name: Dependency Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -77,6 +86,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -88,7 +98,10 @@ jobs:
 
   docker:
     name: Build & Push Docker Image
+    # Nothing is built on PRs (every step was push-only), so skip the runner entirely.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [lint, security, deps, test]
     permissions:
       contents: read
