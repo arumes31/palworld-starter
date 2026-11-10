@@ -276,7 +276,9 @@ func (s *Server) siteURL(r *http.Request) string {
 		scheme = "https"
 	}
 	host := sanitizeHost(r.Host)
-	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" {
+	// X-Forwarded-Host is client-controlled unless a trusted reverse proxy
+	// overwrites it, so it is only honoured with TRUST_PROXY_HEADERS.
+	if xfh := r.Header.Get("X-Forwarded-Host"); xfh != "" && s.trustProxy {
 		host = sanitizeHost(xfh)
 	}
 	if allowed := allowedHosts(); len(allowed) > 0 && !slices.Contains(allowed, strings.ToLower(host)) {
@@ -636,22 +638,9 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// STOP_TOKEN set: require the shared secret (works behind a reverse
-	// proxy where RemoteAddr is useless). Unset: legacy loopback-only check.
-	if s.stopToken != "" {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Stop-Token")), []byte(s.stopToken)) != 1 {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-	} else {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			host = r.RemoteAddr
-		}
-		if host != "127.0.0.1" && host != "::1" && host != "localhost" {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
+	if !s.stopAuthorized(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
 	}
 
 	inst := s.resolveInstance(r)
@@ -670,6 +659,29 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	inst.State.SetTimeRemaining(0)
 
 	_, _ = w.Write([]byte("OK"))
+}
+
+// stopAuthorized reports whether r may call POST /stop. With STOP_TOKEN set
+// the shared secret is required (works behind a reverse proxy where
+// RemoteAddr is useless). Unset, only a direct loopback caller is accepted:
+// a request carrying reverse-proxy forwarding headers is refused even from
+// loopback, because a same-host proxy would otherwise relay internet
+// clients through the loopback peer address.
+func (s *Server) stopAuthorized(r *http.Request) bool {
+	if s.stopToken != "" {
+		return subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Stop-Token")), []byte(s.stopToken)) == 1
+	}
+	for _, h := range []string{"X-Forwarded-For", "X-Real-Ip", "Forwarded"} {
+		if r.Header.Get(h) != "" {
+			return false
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // handleStarting shows a boot progress page that polls /api/players until

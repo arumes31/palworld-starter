@@ -56,9 +56,9 @@ Set the following environment variables:
 | `ADMIN_PASSWORD` | Palworld REST API admin password | *scraped from the game container's env* |
 | `ADMIN_GUI_PASSWORD` | Global admin-GUI login password. Enables the admin GUI at `/admin` when set | *unset (admin GUI disabled)* |
 | `SESSION_KEY` | Secret used to encrypt session cookies; set it so sessions survive restarts | *random per start* |
-| `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy) | *unset (loopback-only)* |
+| `STOP_TOKEN` | Shared secret for `POST /stop` via the `X-Stop-Token` header (needed behind a reverse proxy; without it, requests carrying `X-Forwarded-For`/`X-Real-IP`/`Forwarded` are refused even from loopback) | *unset (direct loopback callers only)* |
 | `ALLOWED_HOSTS` | Comma-separated hostnames the site is served under. When `WEBSITE_URL` is unset, canonical/sitemap URLs only use a request host from this list (else the first entry) | *unset (any Host header)* |
-| `TRUST_PROXY_HEADERS` | Set to `true` behind a reverse proxy so rate limits use the client IP from `X-Forwarded-For` instead of the proxy's address. Never enable without a proxy that sets the header | `false` |
+| `TRUST_PROXY_HEADERS` | Set to `true` behind a reverse proxy so rate limits use the client IP from `X-Forwarded-For` instead of the proxy's address, and canonical/sitemap URLs honour `X-Forwarded-Host`. Never enable without a proxy that sets the header | `false` |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Enable [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) on the captcha pages; the token is verified server-side before a server is started or extended. Set both or neither | *unset (disabled)* |
 | `COOKIE_SECURE` | `true` always marks the session cookie `Secure`, `false` never; unset sets it automatically for HTTPS requests (directly or via `X-Forwarded-Proto: https`) | *auto* |
 | `STATE_DIR` | Directory where persistent server state, remaining timer, and admin revocations are stored | `/hostmem` |
