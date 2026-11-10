@@ -226,29 +226,54 @@ func (c *Controller) IsPaused() bool {
 		return false
 	}
 
-	lines := strings.Split(string(content), "\n")
-	paused := false
+	return pausedFromLogs(string(content))
+}
 
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		if strings.Contains(line, "[AUTO PAUSE] Paused") {
-			paused = true
-			break
-		}
-		if strings.Contains(line, "Wakeup!!!") ||
-			strings.Contains(line, "Resumed by") ||
-			strings.Contains(line, "Player connected") ||
-			strings.Contains(line, "Player disconnected") ||
-			strings.Contains(line, "[AUTO PAUSE] Service") ||
-			strings.Contains(line, "REST API started") ||
-			strings.Contains(line, "Running Palworld dedicated server") {
-			return false
+// notPausedMarkers are log fragments that mean the server is awake.
+var notPausedMarkers = []string{
+	"Wakeup!!!",
+	"Resumed by",
+	"Player connected",
+	"Player disconnected",
+	"connected the server",
+	"left the server",
+	"[AUTO PAUSE] Service",
+	"REST API started",
+	"Running Palworld dedicated server",
+}
+
+// pauseMarker classifies one log line: decided reports whether the line says
+// anything about the pause state, paused whether that state is "paused".
+//
+// Player-influenced lines (chat, and join/leave events that embed the display
+// name) are classified before the pause marker is considered, so a display
+// name or chat message containing the marker text is never mistaken for the
+// auto-pause wrapper's own line.
+func pauseMarker(line string) (paused, decided bool) {
+	if strings.Contains(line, "[CHAT]") {
+		return false, false
+	}
+	for _, m := range notPausedMarkers {
+		if strings.Contains(line, m) {
+			return false, true
 		}
 	}
-	return paused
+	if strings.Contains(line, "[AUTO PAUSE] Paused") {
+		return true, true
+	}
+	return false, false
+}
+
+// pausedFromLogs scans log output newest-first and returns the state given by
+// the most recent line that decides it (false when none does).
+func pausedFromLogs(content string) bool {
+	lines := strings.Split(content, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if paused, decided := pauseMarker(strings.TrimSpace(lines[i])); decided {
+			return paused
+		}
+	}
+	return false
 }
 
 // fetchPlayers retrieves the player list from the REST API. The public
